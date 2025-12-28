@@ -143,6 +143,8 @@ app.use((req, res, next) => {
   next();
 });
 
+app.get('/', (_req, res) => res.send('Clockdin API is live.'));
+
 // Log errors
 app.use((err, req, res, next) => {
   logMessage(`Error: ${err.message}`);
