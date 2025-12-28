@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import EventCard from './EventCard';
 import EventModal from './EventModal';
 import '../Events.css';
+import { getBookmarkStorageKeys } from '../utils/bookmarkStorage';
 
 const normalize = (val) => (val || '').toString().trim();
 const normalizeLower = (val) => normalize(val).toLowerCase();
@@ -22,7 +23,8 @@ const getCollege = (ev) => normalize(ev.college || ev.collegeName || ev.organize
 
 const Bookmarks = () => {
   const [bookmarks, setBookmarks] = useState(() => {
-    const data = localStorage.getItem('bookmarkedEventsData');
+    const { dataKey } = getBookmarkStorageKeys();
+    const data = localStorage.getItem(dataKey);
     return data ? JSON.parse(data) : [];
   });
   const [search, setSearch] = useState('');
@@ -199,17 +201,19 @@ const Bookmarks = () => {
     const id = eventObj._id || eventObj.id || eventObj.title;
     const updated = bookmarks.filter(ev => (ev._id || ev.id || ev.title) !== id);
     setBookmarks(updated);
-    localStorage.setItem('bookmarkedEventsData', JSON.stringify(updated));
-    const ids = JSON.parse(localStorage.getItem('bookmarkedEvents') || '[]').filter(i => i !== id);
-    localStorage.setItem('bookmarkedEvents', JSON.stringify(ids));
+    const { dataKey, idsKey } = getBookmarkStorageKeys();
+    localStorage.setItem(dataKey, JSON.stringify(updated));
+    const ids = JSON.parse(localStorage.getItem(idsKey) || '[]').filter(i => i !== id);
+    localStorage.setItem(idsKey, JSON.stringify(ids));
   };
 
   const handleClearAll = () => {
     if (!bookmarks.length) return;
     if (!window.confirm('Clear all bookmarks? This cannot be undone.')) return;
     setBookmarks([]);
-    localStorage.removeItem('bookmarkedEventsData');
-    localStorage.removeItem('bookmarkedEvents');
+    const { dataKey, idsKey } = getBookmarkStorageKeys();
+    localStorage.removeItem(dataKey);
+    localStorage.removeItem(idsKey);
   };
 
   const formatDate = (date) => {
@@ -294,7 +298,8 @@ const Bookmarks = () => {
       return ev;
     });
     setBookmarks(updated);
-    localStorage.setItem('bookmarkedEventsData', JSON.stringify(updated));
+    const { dataKey } = getBookmarkStorageKeys();
+    localStorage.setItem(dataKey, JSON.stringify(updated));
     if (window?.toast) {
       window.toast('Event restored from archive.', { type: 'success' });
     }
@@ -310,7 +315,8 @@ const Bookmarks = () => {
       return ev;
     });
     setBookmarks(updated);
-    localStorage.setItem('bookmarkedEventsData', JSON.stringify(updated));
+    const { dataKey } = getBookmarkStorageKeys();
+    localStorage.setItem(dataKey, JSON.stringify(updated));
     // Optional toast
     if (window?.toast) {
       window.toast('Completed events archived.', { type: 'success' });

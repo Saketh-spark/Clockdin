@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom';
 import EventCard from './EventCard';
 import EventModal from './EventModal';
 import '../Events.css';
+import { getBookmarkStorageKeys } from '../utils/bookmarkStorage';
 
 // 100+ Hardcoded Indian events for the next 4 months with proper names, descriptions, deadlines, and locations
 const hardcodedEvents = [
@@ -1756,7 +1757,8 @@ const Events = () => {
 
   // Bookmark logic (needed early for filter computations)
   const [bookmarkedIds, setBookmarkedIds] = useState(() => {
-    const saved = localStorage.getItem('bookmarkedEvents');
+    const { idsKey } = getBookmarkStorageKeys();
+    const saved = localStorage.getItem(idsKey);
     return saved ? JSON.parse(saved) : [];
   });
 
@@ -1889,7 +1891,8 @@ const Events = () => {
     }
 
     // Bookmarked only filter
-    if (bookmarkedOnly && !bookmarkedIds.includes(event._id)) return false;
+    const bookmarkId = event._id || event.id || event.title;
+    if (bookmarkedOnly && !bookmarkedIds.includes(bookmarkId)) return false;
 
     // Archived only filter (fallback to event.archived / isArchived flags)
     if (archivedOnly && !(event.archived || event.isArchived)) return false;
@@ -1985,21 +1988,25 @@ const Events = () => {
   ];
 
   const handleBookmark = (event) => {
+    const { idsKey, dataKey } = getBookmarkStorageKeys();
+    const bookmarkId = event._id || event.id || event.title;
+    if (!bookmarkId) return;
     let updated;
-    if (bookmarkedIds.includes(event._id)) {
-      updated = bookmarkedIds.filter(id => id !== event._id);
+    if (bookmarkedIds.includes(bookmarkId)) {
+      updated = bookmarkedIds.filter(id => id !== bookmarkId);
     } else {
-      updated = [...bookmarkedIds, event._id];
-      const all = JSON.parse(localStorage.getItem('bookmarkedEventsData') || '[]');
-      if (!all.find(e => e._id === event._id)) {
-        localStorage.setItem('bookmarkedEventsData', JSON.stringify([...all, event]));
+      updated = [...bookmarkedIds, bookmarkId];
+      const all = JSON.parse(localStorage.getItem(dataKey) || '[]');
+      const exists = all.some(e => (e._id || e.id || e.title) === bookmarkId);
+      if (!exists) {
+        localStorage.setItem(dataKey, JSON.stringify([...all, event]));
       }
     }
     setBookmarkedIds(updated);
-    localStorage.setItem('bookmarkedEvents', JSON.stringify(updated));
-    if (!updated.includes(event._id)) {
-      const all = JSON.parse(localStorage.getItem('bookmarkedEventsData') || '[]');
-      localStorage.setItem('bookmarkedEventsData', JSON.stringify(all.filter(e => e._id !== event._id)));
+    localStorage.setItem(idsKey, JSON.stringify(updated));
+    if (!updated.includes(bookmarkId)) {
+      const all = JSON.parse(localStorage.getItem(dataKey) || '[]');
+      localStorage.setItem(dataKey, JSON.stringify(all.filter(e => (e._id || e.id || e.title) !== bookmarkId)));
     }
   };
 
