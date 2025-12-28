@@ -32,7 +32,23 @@ app.use(express.json());
 
 // Connect to MongoDB
 mongoose.connect(process.env.MONGO_URI, { useNewUrlParser: true, useUnifiedTopology: true })
-  .then(() => console.log('MongoDB connected'))
+  .then(async () => {
+    console.log('MongoDB connected');
+    try {
+      await rescheduleAll();
+    } catch (schedErr) {
+      console.error('Error rescheduling reminders on startup:', schedErr);
+    }
+    scheduleBookmarkedNotifications();
+    scheduleEventNotifications();
+    try {
+      await addHardcodedEventsToDatabase();
+      scheduleEventsEndingSoonCron();
+      console.log('Hardcoded events ensured and events cron scheduled.');
+    } catch (hardErr) {
+      console.error('Error ensuring hardcoded events:', hardErr);
+    }
+  })
   .catch(err => console.error('MongoDB error:', err));
 
 // Setup nodemailer transporter (use your SMTP credentials)
@@ -828,19 +844,4 @@ const addHardcodedEventsToDatabase = async () => {
     }
   }
 };
-
-// Call the function to add hardcoded events to the database, then start the events cron
-addHardcodedEventsToDatabase()
-  .then(() => {
-    // Now that hardcoded events are persisted (if missing), schedule the events cron
-    scheduleEventsEndingSoonCron();
-    console.log('Hardcoded events ensured and events cron scheduled.');
-  })
-  .catch(err => console.error('Error adding hardcoded events to DB:', err));
-
-// Initialize and schedule jobs
-addHardcodedEventsToDatabase();
-rescheduleAll();
-scheduleBookmarkedNotifications();
-scheduleEventNotifications(); // Schedule daily event notifications
 

@@ -2,10 +2,12 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const path = require('path');
 const User = require('../models/user.model');
 const Event = require('../models/event.model');
 const Reminder = require('../models/reminder.model');
 const NotificationSubscription = require('../models/notificationSubscription.model');
+const scheduler = require(path.join(__dirname, '../utils/scheduler'));
 const router = express.Router();
 
 // Auth middleware
@@ -165,16 +167,11 @@ router.post('/myevents', auth, async (req, res) => {
       console.log('Created reminder:', { id: createdReminder._id.toString(), email: createdReminder.email, remindAt: createdReminder.remindAt });
       // schedule the reminder to be sent at the exact time
       try {
-        const scheduler = require('../../server/utils/scheduler');
-        // Note: require path adjusted at runtime; fallback to project utils
-        (scheduler && scheduler.scheduleReminder) ? scheduler.scheduleReminder(createdReminder) : null;
-      } catch (err) {
-        try { // alternate path
-          const scheduler2 = require('../utils/scheduler');
-          scheduler2.scheduleReminder(createdReminder);
-        } catch (e) {
-          console.error('Failed to schedule reminder after creation:', e.message);
+        if (scheduler?.scheduleReminder) {
+          scheduler.scheduleReminder(createdReminder);
         }
+      } catch (schedErr) {
+        console.error('Failed to schedule reminder after creation:', schedErr.message);
       }
     }
 
