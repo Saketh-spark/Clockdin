@@ -107,10 +107,11 @@ const Landing = ({ onSignIn }) => {
     }
   };
   const handleChange = (e) => {
-    setRegister({
-      ...register,
-      [e.target.name]: e.target.value,
-    });
+    const { name, type, checked, value } = e.target;
+    setRegister(prev => ({
+      ...prev,
+      [name]: type === 'checkbox' ? checked : value,
+    }));
   };
 
   // Home view: hero, features, two cards, stats
@@ -349,7 +350,7 @@ const Landing = ({ onSignIn }) => {
                 </div>
               </div>
               <div className="form-check mb-3">
-                <input className="form-check-input" type="checkbox" id="agree" checked={register.agree} onChange={handleChange} />
+                <input className="form-check-input" type="checkbox" id="agree" name="agree" checked={register.agree} onChange={handleChange} />
                 <label className="form-check-label" htmlFor="agree">
                   I agree to the <a href="/terms-of-service" style={{color:'#6366f1'}}>Terms of Service</a> and <a href="/privacy-policy" style={{color:'#6366f1'}}>Privacy Policy</a>
                 </label>
