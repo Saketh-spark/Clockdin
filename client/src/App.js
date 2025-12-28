@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import Navbar from './components/Navbar';
 import Events from './components/Events';
@@ -39,6 +39,7 @@ function App() {
         <Navbar onSignOut={handleSignOut} />
         <br />
         <Routes>
+          <Route path="/" element={<Navigate to="/events" replace />} />
           <Route path="/events" element={<Events />} />
           <Route path="/my-events" element={<MyEvents />} />
           <Route path="/bookmarks" element={<Bookmarks />} />
@@ -48,6 +49,7 @@ function App() {
           <Route path="/contact-us" element={<ContactUs />} />
           <Route path="/privacy-policy" element={<PrivacyPolicy />} />
           <Route path="/terms-of-service" element={<TermsOfService />} />
+          <Route path="*" element={<Navigate to="/events" replace />} />
         </Routes>
       </div>
   <Footer />
