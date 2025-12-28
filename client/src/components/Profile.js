@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { apiAxios } from '../utils/api';
 import '../Events.css';
 
@@ -34,6 +34,7 @@ const Profile = () => {
   const [edit, setEdit] = useState(false);
   const [profile, setProfile] = useState(defaultProfile);
   const [form, setForm] = useState(defaultProfile);
+  const avatarInputRef = useRef(null);
 
   // stats state
   const [bookmarkedCount, setBookmarkedCount] = useState(0);
@@ -50,8 +51,15 @@ const Profile = () => {
         });
         if (res.data) {
           const profilePayload = res.data.profile || {};
-          setProfile({ ...defaultProfile, ...profilePayload, name: res.data.name, email: res.data.email });
-          setForm({ ...defaultProfile, ...profilePayload, name: res.data.name, email: res.data.email });
+          const mergedProfile = {
+            ...defaultProfile,
+            ...profilePayload,
+            avatar: res.data.avatar || defaultProfile.avatar,
+            name: res.data.name,
+            email: res.data.email,
+          };
+          setProfile(mergedProfile);
+          setForm({ ...mergedProfile });
           // bookmarked count (server first, fallback to localStorage)
           const serverBookmarks = Array.isArray(res.data.bookmarks) ? res.data.bookmarks.length : 0;
           const localBookmarkedIds = JSON.parse(localStorage.getItem('bookmarkedEvents') || '[]');
@@ -102,6 +110,16 @@ const Profile = () => {
   });
 
   const handleChange = e => setForm({ ...form, [e.target.name]: e.target.value });
+  const handleAvatarUpload = e => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      setForm(prev => ({ ...prev, avatar: reader.result || prev.avatar }));
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
   const startEdit = () => {
     setForm({ ...profile });
     setEdit(true);
@@ -159,8 +177,25 @@ const Profile = () => {
           </div>
           <div className="d-flex justify-content-center align-items-center mb-4 gap-4 flex-wrap">
             <div style={{position:'relative', width:120, height:120, minWidth:120}}>
-              <img src={profile.avatar} alt="avatar" style={{width:120, height:120, borderRadius:'50%', border:'4px solid #6366f1', boxShadow:'0 2px 16px #6366f133', objectFit:'cover'}} />
-              <span style={{position:'absolute', bottom:8, right:8, background:'#fff', borderRadius:'50%', padding:6, boxShadow:'0 2px 8px #6366f133', border:'1.5px solid #e5e7eb', cursor:'pointer'}} title="Change Avatar"><i className="bi bi-camera" style={{color:'#6366f1', fontSize:'1.2rem'}}></i></span>
+              <input
+                ref={avatarInputRef}
+                type="file"
+                accept="image/*"
+                style={{ display: 'none' }}
+                onChange={handleAvatarUpload}
+              />
+              <img
+                src={edit ? form.avatar : profile.avatar}
+                alt="avatar"
+                style={{ width:120, height:120, borderRadius:'50%', border:'4px solid #6366f1', boxShadow:'0 2px 16px #6366f133', objectFit:'cover' }}
+              />
+              <span
+                style={{ position:'absolute', bottom:8, right:8, background:'#fff', borderRadius:'50%', padding:6, boxShadow:'0 2px 8px #6366f133', border:'1.5px solid #e5e7eb', cursor: edit ? 'pointer' : 'not-allowed' }}
+                title={edit ? 'Change Avatar' : 'Enter edit mode to change avatar'}
+                onClick={() => edit && avatarInputRef.current?.click()}
+              >
+                <i className="bi bi-camera" style={{ color:'#6366f1', fontSize:'1.2rem' }}></i>
+              </span>
             </div>
             <div>
               <h2 style={{fontWeight:800, fontSize:'2rem', color:'#22223b', marginBottom:4, letterSpacing:'-0.5px'}}><i className="bi bi-person-badge me-2 text-primary"></i>{profile.name || 'Student User'}</h2>

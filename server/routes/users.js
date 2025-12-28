@@ -9,6 +9,20 @@ const Reminder = require('../models/reminder.model');
 const NotificationSubscription = require('../models/notificationSubscription.model');
 const scheduler = require(path.join(__dirname, '../utils/scheduler'));
 const router = express.Router();
+const profileFields = [
+  'phone',
+  'location',
+  'bio',
+  'college',
+  'major',
+  'gradYear',
+  'website',
+  'github',
+  'linkedin',
+  'twitter',
+  'interests',
+  'skills',
+];
 
 // Auth middleware
 const auth = (req, res, next) => {
@@ -246,63 +260,24 @@ router.post('/notifications/read', auth, async (req, res) => {
 // Profile: update
 router.put('/profile', auth, async (req, res) => {
   const user = await User.findById(req.user.id);
-  // Update name/email if present
   if (req.body.name) user.name = req.body.name;
   if (req.body.email) user.email = req.body.email;
-  // Update profile fields
-  user.profile = { ...user.profile, ...req.body };
-  await user.save();
-  res.json({
-    name: user.name,
-    email: user.email,
-    profile: user.profile
-  });
-});
-
-// Fix all notification dates for all users
-router.post('/notifications/fix-dates', async (req, res) => {
-  try {
-    const users = await User.find();
-    let fixedCount = 0;
-    for (const user of users) {
-      let changed = false;
-      for (const notif of user.notifications) {
-        // If 'time' is missing or invalid, set it to now or try to parse 'date'
-        if (!notif.time || isNaN(new Date(notif.time).getTime())) {
-          if (notif.date && !isNaN(new Date(notif.date).getTime())) {
-            notif.time = new Date(notif.date);
-          } else {
-            notif.time = new Date();
-          }
-          changed = true;
-        }
-      }
-      if (changed) {
-        await user.save();
-        fixedCount++;
-      }
-    }
-    res.json({ fixed: fixedCount });
-  } catch (err) {
-    res.status(500).json({ msg: 'Error fixing notification dates', error: err.message });
+  if (Object.prototype.hasOwnProperty.call(req.body, 'avatar')) {
+    user.avatar = req.body.avatar;
   }
-});
-
-module.exports = router;
-
-// Profile: update
-router.put('/profile', auth, async (req, res) => {
-  const user = await User.findById(req.user.id);
-  // Update name/email if present
-  if (req.body.name) user.name = req.body.name;
-  if (req.body.email) user.email = req.body.email;
-  // Update profile fields
-  user.profile = { ...user.profile, ...req.body };
+  const profileUpdates = {};
+  profileFields.forEach(field => {
+    if (req.body[field] !== undefined) {
+      profileUpdates[field] = req.body[field];
+    }
+  });
+  user.profile = { ...user.profile, ...profileUpdates };
   await user.save();
   res.json({
     name: user.name,
     email: user.email,
-    profile: user.profile
+    avatar: user.avatar,
+    profile: user.profile,
   });
 });
 
