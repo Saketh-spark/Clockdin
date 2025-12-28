@@ -125,7 +125,11 @@ function scheduleEventsEndingSoonCron() {
 }
 
 // Setup logging
-const logFilePath = path.join(__dirname, 'logs', 'server.log');
+const logsDir = path.join(__dirname, 'logs');
+if (!fs.existsSync(logsDir)) {
+  fs.mkdirSync(logsDir, { recursive: true });
+}
+const logFilePath = path.join(logsDir, 'server.log');
 const logStream = fs.createWriteStream(logFilePath, { flags: 'a' });
 
 function logMessage(message) {
