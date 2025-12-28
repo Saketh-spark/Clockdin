@@ -102,6 +102,11 @@ const Profile = () => {
   });
 
   const handleChange = e => setForm({ ...form, [e.target.name]: e.target.value });
+  const startEdit = () => {
+    setForm({ ...profile });
+    setEdit(true);
+  };
+
   const handleSave = async () => {
     try {
   const token = localStorage.getItem('clockdin_token');
@@ -109,6 +114,7 @@ const Profile = () => {
         headers: { 'x-auth-token': token }
       });
       setProfile({ ...form });
+      setForm({ ...form });
       setEdit(false);
     } catch (err) {
       alert('Failed to update profile.');
@@ -136,6 +142,21 @@ const Profile = () => {
       </div>
       {tab === 'profile' && (
         <div className="p-4 mb-4" style={{...glassCard, position:'relative'}}>
+          <div className="d-flex justify-content-end mb-3">
+            {!edit ? (
+              <button
+                className="btn btn-outline-primary"
+                style={{ borderRadius: '1.2rem', fontWeight: 600 }}
+                onClick={startEdit}
+              >
+                <i className="bi bi-pencil-square me-2"></i>Edit Profile
+              </button>
+            ) : (
+              <div style={{ color: '#2563eb', fontWeight: 600, fontSize: '0.95rem' }}>
+                You are editing your details
+              </div>
+            )}
+          </div>
           <div className="d-flex justify-content-center align-items-center mb-4 gap-4 flex-wrap">
             <div style={{position:'relative', width:120, height:120, minWidth:120}}>
               <img src={profile.avatar} alt="avatar" style={{width:120, height:120, borderRadius:'50%', border:'4px solid #6366f1', boxShadow:'0 2px 16px #6366f133', objectFit:'cover'}} />
@@ -218,7 +239,16 @@ const Profile = () => {
           {edit && (
             <div className="d-flex gap-2 mt-3">
               <button className="btn btn-gradient px-4 py-2" style={{background:'linear-gradient(90deg,#6366f1,#3b82f6)',color:'#fff',fontWeight:600,borderRadius:'1.2rem',border:'none'}} onClick={handleSave}>Save</button>
-              <button className="btn btn-outline-secondary px-4 py-2" style={{borderRadius:'1.2rem'}} onClick={()=>setEdit(false)}>Cancel</button>
+              <button
+                className="btn btn-outline-secondary px-4 py-2"
+                style={{ borderRadius: '1.2rem' }}
+                onClick={() => {
+                  setForm({ ...profile });
+                  setEdit(false);
+                }}
+              >
+                Cancel
+              </button>
             </div>
           )}
         </div>
