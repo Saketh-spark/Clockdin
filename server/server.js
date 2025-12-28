@@ -13,12 +13,15 @@ const { rescheduleAll, scheduleBookmarkedNotifications, scheduleEventNotificatio
 const reminders = require('./routes/reminders');
 
 const CLIENT_URL = (process.env.CLIENT_URL || 'https://clockdin000007.vercel.app').trim();
+const FALLBACK_CLIENT_URL = 'https://clockdin000007.vercel.app';
+const LOCAL_CLIENT_URL = 'http://localhost:3000';
+const allowedOrigins = new Set([CLIENT_URL, FALLBACK_CLIENT_URL, LOCAL_CLIENT_URL]);
 const corsOptions = {
   origin: (origin, callback) => {
-    if (!origin || origin === CLIENT_URL) {
+    if (!origin || allowedOrigins.has(origin)) {
       callback(null, true);
     } else {
-      callback(new Error('CORS not allowed'));
+      callback(null, false);
     }
   },
   credentials: true,
