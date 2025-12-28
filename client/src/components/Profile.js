@@ -48,9 +48,10 @@ const Profile = () => {
         const res = await apiAxios.get('/api/users/me', {
           headers: { 'x-auth-token': token }
         });
-        if (res.data && res.data.profile) {
-          setProfile({ ...defaultProfile, ...res.data.profile, name: res.data.name, email: res.data.email });
-          setForm({ ...defaultProfile, ...res.data.profile, name: res.data.name, email: res.data.email });
+        if (res.data) {
+          const profilePayload = res.data.profile || {};
+          setProfile({ ...defaultProfile, ...profilePayload, name: res.data.name, email: res.data.email });
+          setForm({ ...defaultProfile, ...profilePayload, name: res.data.name, email: res.data.email });
           // bookmarked count (server first, fallback to localStorage)
           const serverBookmarks = Array.isArray(res.data.bookmarks) ? res.data.bookmarks.length : 0;
           const localBookmarkedIds = JSON.parse(localStorage.getItem('bookmarkedEvents') || '[]');
