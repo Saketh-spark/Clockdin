@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { apiFetch } from '../utils/api';
+import { getNotificationStorageKeys } from '../utils/notificationStorage';
 
 const EventCard = ({ event, onBookmark, isBookmarked, showBookmark = false, onClick, showActions = true }) => {
   const [subscribed, setSubscribed] = useState(false);
@@ -8,15 +9,16 @@ const EventCard = ({ event, onBookmark, isBookmarked, showBookmark = false, onCl
   const [copyMessage, setCopyMessage] = useState('');
   const shareWrapperRef = useRef(null);
   const copyTimerRef = useRef(null);
+  const { idsKey, itemsKey } = getNotificationStorageKeys();
 
   useEffect(() => {
-    const stored = JSON.parse(localStorage.getItem('notify_event_ids') || '[]');
+    const stored = JSON.parse(localStorage.getItem(idsKey) || '[]');
     setSubscribed(stored.includes(event._id));
-  }, [event._id]);
+  }, [event._id, idsKey]);
 
   useEffect(() => {
     const refresh = () => {
-      const stored = JSON.parse(localStorage.getItem('notify_event_ids') || '[]');
+      const stored = JSON.parse(localStorage.getItem(idsKey) || '[]');
       setSubscribed(stored.includes(event._id));
     };
     window.addEventListener('storage', refresh);
@@ -25,7 +27,7 @@ const EventCard = ({ event, onBookmark, isBookmarked, showBookmark = false, onCl
       window.removeEventListener('storage', refresh);
       window.removeEventListener('notify-events-changed', refresh);
     };
-  }, [event._id]);
+  }, [event._id, idsKey]);
 
   const locationLabel = event.location || 'Location TBD';
   const eventDateLabel = event.eventDate
@@ -41,8 +43,8 @@ const EventCard = ({ event, onBookmark, isBookmarked, showBookmark = false, onCl
   const extraTagsCount = tags.length > 2 ? tags.length - 2 : 0;
 
   const updateLocal = (next) => {
-    const ids = JSON.parse(localStorage.getItem('notify_event_ids') || '[]');
-    const items = JSON.parse(localStorage.getItem('notify_event_items') || '[]');
+    const ids = JSON.parse(localStorage.getItem(idsKey) || '[]');
+    const items = JSON.parse(localStorage.getItem(itemsKey) || '[]');
 
     const ensureEventShape = () => ({
       _id: event._id,
@@ -74,8 +76,8 @@ const EventCard = ({ event, onBookmark, isBookmarked, showBookmark = false, onCl
       updatedItems = items.filter(it => (it._id || it.id) !== event._id);
     }
 
-    localStorage.setItem('notify_event_ids', JSON.stringify(updatedIds));
-    localStorage.setItem('notify_event_items', JSON.stringify(updatedItems));
+    localStorage.setItem(idsKey, JSON.stringify(updatedIds));
+    localStorage.setItem(itemsKey, JSON.stringify(updatedItems));
     window.dispatchEvent(new Event('notify-events-changed'));
   };
 

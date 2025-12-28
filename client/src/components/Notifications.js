@@ -3,21 +3,24 @@ import React, { useEffect, useState } from 'react';
 import EventCard from './EventCard';
 import '../Events.css';
 import { apiFetch } from '../utils/api';
+import { getNotificationStorageKeys } from '../utils/notificationStorage';
 
 const Notifications = () => {
   const [notifiedEvents, setNotifiedEvents] = useState(() => {
-    const data = localStorage.getItem('notify_event_items');
+    const { itemsKey } = getNotificationStorageKeys();
+    const data = localStorage.getItem(itemsKey);
     return data ? JSON.parse(data) : [];
   });
 
   const refresh = () => {
-    const data = localStorage.getItem('notify_event_items');
+    const { itemsKey } = getNotificationStorageKeys();
+    const data = localStorage.getItem(itemsKey);
     setNotifiedEvents(data ? JSON.parse(data) : []);
   };
 
   useEffect(() => {
     const onStorage = (e) => {
-      if (e.key === 'notify_event_items' || e.key === 'notify_event_ids') refresh();
+      if (!e.key || e.key.includes('notify_event_')) refresh();
     };
     const onCustom = () => refresh();
     window.addEventListener('storage', onStorage);
@@ -29,10 +32,11 @@ const Notifications = () => {
   }, []);
 
   const removeNotifiedLocal = (eventId) => {
-    const ids = JSON.parse(localStorage.getItem('notify_event_ids') || '[]').filter(id => id !== eventId);
-    const items = JSON.parse(localStorage.getItem('notify_event_items') || '[]').filter(ev => (ev._id || ev.id) !== eventId);
-    localStorage.setItem('notify_event_ids', JSON.stringify(ids));
-    localStorage.setItem('notify_event_items', JSON.stringify(items));
+    const { idsKey, itemsKey } = getNotificationStorageKeys();
+    const ids = JSON.parse(localStorage.getItem(idsKey) || '[]').filter(id => id !== eventId);
+    const items = JSON.parse(localStorage.getItem(itemsKey) || '[]').filter(ev => (ev._id || ev.id) !== eventId);
+    localStorage.setItem(idsKey, JSON.stringify(ids));
+    localStorage.setItem(itemsKey, JSON.stringify(items));
     setNotifiedEvents(items);
     window.dispatchEvent(new Event('notify-events-changed'));
   };
