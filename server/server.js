@@ -12,8 +12,19 @@ const User = require('./models/user.model'); // Import User model
 const { rescheduleAll, scheduleBookmarkedNotifications, scheduleEventNotifications } = require('./utils/scheduler');
 const reminders = require('./routes/reminders');
 
+const CLIENT_URL = (process.env.CLIENT_URL || 'https://clockdin000007.vercel.app').trim();
+const corsOptions = {
+  origin: (origin, callback) => {
+    if (!origin || origin === CLIENT_URL) {
+      callback(null, true);
+    } else {
+      callback(new Error('CORS not allowed'));
+    }
+  },
+  credentials: true,
+};
 const app = express();
-app.use(cors());
+app.use(cors(corsOptions));
 app.use(express.json());
 
 // Connect to MongoDB
