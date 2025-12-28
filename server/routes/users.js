@@ -111,18 +111,36 @@ router.delete('/notifications/subscribe/:eventId', auth, async (req, res) => {
 // My Events: add, get, delete
 router.post('/myevents', auth, async (req, res) => {
   try {
-    const { title, description, date, time, location, category, reminder } = req.body;
+    const { title, description, date, time, location, category, reminder, timezoneOffset } = req.body;
     const user = await User.findById(req.user.id);
 
     // Save as a subdocument in user's myEvents for UI
     const myEvent = { title, description, date, time, location, category, reminder };
     user.myEvents.push(myEvent);
 
+    const offsetMinutes = typeof timezoneOffset === 'number' ? timezoneOffset : 0;
+    let eventDateTime = null;
+    if (date) {
+      const normalizedTime = time || '00:00';
+      const parsed = new Date(`${date}T${normalizedTime}`);
+      if (!isNaN(parsed.getTime())) {
+        eventDateTime = parsed;
+      } else {
+        const fallbackDate = new Date(date);
+        if (!isNaN(fallbackDate.getTime())) {
+          eventDateTime = fallbackDate;
+        }
+      }
+      if (eventDateTime) {
+        eventDateTime.setMinutes(eventDateTime.getMinutes() + offsetMinutes);
+      }
+    }
+
     // Also create an Event document so reminders can reference it
     const eventDoc = await Event.create({
       title,
       description,
-      eventDate: date ? new Date(date) : undefined,
+      eventDate: eventDateTime || (date ? new Date(date) : undefined),
       organizerName: user.name,
       location,
       createdBy: user._id
@@ -132,15 +150,6 @@ router.post('/myevents', auth, async (req, res) => {
     if (reminder && reminder !== 'No reminder') {
       // compute remindAt based on reminder string
       let remindAt = null;
-      let eventDateTime = date ? new Date(date) : null;
-
-      // If time provided, try to combine date and time
-      if (eventDateTime && time) {
-        const [hh, mm] = time.split(':').map(Number);
-        eventDateTime.setHours(hh);
-        eventDateTime.setMinutes(mm);
-        eventDateTime.setSeconds(0);
-      }
 
       const parseMap = {
         'On time': 0,

@@ -105,7 +105,8 @@ const MyEvents = () => {
         time: form.time,
         location: form.location,
         category: form.category,
-        reminder: form.reminder
+        reminder: form.reminder,
+        timezoneOffset: new Date().getTimezoneOffset()
       }, {
         headers: { 'x-auth-token': token }
       });
