@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-const API = '/api/users';
+import { apiFetch } from '../utils/api';
 
 const initialRegisterState = { name: '', email: '', password: '', college: '', confirm: '', agree: false };
 const initialLoginState = { email: '', password: '' };
@@ -58,7 +58,7 @@ const Landing = ({ onSignIn }) => {
     e.preventDefault();
     setLoading(true); setError('');
     try {
-      const res = await fetch(`${API}/login`, {
+      const res = await apiFetch('/api/users/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(login),
@@ -89,7 +89,7 @@ const Landing = ({ onSignIn }) => {
     }
     setLoading(true);
     try {
-      const res = await fetch(`${API}/register`, {
+      const res = await apiFetch('/api/users/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: register.name, email: register.email, password: register.password }),

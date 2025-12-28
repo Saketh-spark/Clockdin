@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import axios from 'axios';
+import { apiAxios, buildApiUrl } from '../utils/api';
 
 const initialFormState = {
   fullName: '',
@@ -59,7 +59,7 @@ const Register = () => {
           }
         }
         const body = JSON.stringify(newUser);
-        const res = await axios.post('http://localhost:5000/users/register', body, config);
+        const res = await apiAxios.post('/api/users/register', body, config);
         console.log(res.data);
       } catch (err) {
         console.error(err.response.data);
@@ -68,7 +68,7 @@ const Register = () => {
   };
 
   const handleGoogleRegister = () => {
-    window.location.href = `http://localhost:5000/auth/google`;
+    window.location.href = buildApiUrl('/api/auth/google');
   };
 
   return (

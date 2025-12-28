@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { apiFetch } from '../utils/api';
 
 const EventCard = ({ event, onBookmark, isBookmarked, showBookmark = false, onClick, showActions = true }) => {
   const [subscribed, setSubscribed] = useState(false);
@@ -87,13 +88,13 @@ const EventCard = ({ event, onBookmark, isBookmarked, showBookmark = false, onCl
     try {
       if (token) {
         if (targetState) {
-          await fetch('/api/users/notifications/subscribe', {
+          await apiFetch('/api/users/notifications/subscribe', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'x-auth-token': token },
             body: JSON.stringify({ eventId: event._id })
           });
         } else {
-          await fetch(`/api/users/notifications/subscribe/${event._id}`, {
+          await apiFetch(`/api/users/notifications/subscribe/${event._id}`, {
             method: 'DELETE',
             headers: { 'x-auth-token': token }
           });

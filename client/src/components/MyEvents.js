@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import { apiAxios } from '../utils/api';
 const initialForm = {
   title: '',
   description: '',
@@ -61,7 +61,7 @@ const MyEvents = () => {
     const fetchEvents = async () => {
       try {
   const token = localStorage.getItem('clockdin_token');
-        const res = await axios.get('/api/users/myevents', {
+        const res = await apiAxios.get('/api/users/myevents', {
           headers: { 'x-auth-token': token }
         });
         setEvents(res.data);
@@ -98,7 +98,7 @@ const MyEvents = () => {
           eventDate = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
         }
       }
-      const res = await axios.post('/api/users/myevents', {
+      const res = await apiAxios.post('/api/users/myevents', {
         title: form.title,
         description: form.description,
         date: eventDate,
@@ -112,7 +112,7 @@ const MyEvents = () => {
       setEvents(res.data);
       // If reminder is set (not 'No reminder'), create a notification
       if (form.reminder && form.reminder !== 'No reminder') {
-        await axios.post('/api/users/notifications', {
+        await apiAxios.post('/api/users/notifications', {
           message: `Reminder set for event: ${form.title} (${form.reminder})`,
           date: new Date(),
           type: 'reminder',
@@ -133,13 +133,13 @@ const MyEvents = () => {
   const token = localStorage.getItem('clockdin_token');
       // Delete all events one by one (API does not support bulk delete)
       for (let i = events.length - 1; i >= 0; i--) {
-        await axios.delete(`/api/users/myevents/${i}`, {
+        await apiAxios.delete(`/api/users/myevents/${i}`, {
           headers: { 'x-auth-token': token }
         });
       }
       setEvents([]);
       // Clear all notifications (API does not support bulk delete, so mark all as read and clear array)
-      await axios.post('/api/users/notifications/read', {}, {
+      await apiAxios.post('/api/users/notifications/read', {}, {
         headers: { 'x-auth-token': token }
       });
       // Optionally, you can add a backend route to delete all notifications if needed
@@ -153,7 +153,7 @@ const MyEvents = () => {
     if (!window.confirm('Are you sure you want to delete this event?')) return;
     try {
       const token = localStorage.getItem('clockdin_token');
-      await axios.delete(`/api/users/myevents/${idx}`, {
+      await apiAxios.delete(`/api/users/myevents/${idx}`, {
         headers: { 'x-auth-token': token }
       });
       setEvents(prev => prev.filter((_, i) => i !== idx));

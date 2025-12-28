@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import axios from 'axios';
+import { apiAxios, buildApiUrl } from '../utils/api';
 import './Login.css'; // Ensure a CSS file is linked for styling
 
 const Login = () => {
@@ -25,7 +25,7 @@ const Login = () => {
         }
       }
       const body = JSON.stringify(user);
-  const res = await axios.post('/api/users/login', body, config);
+  const res = await apiAxios.post('/api/users/login', body, config);
       console.log(res.data);
     } catch (err) {
       console.error(err.response.data);
@@ -33,7 +33,7 @@ const Login = () => {
   };
 
   const handleGoogleLogin = () => {
-    window.location.href = `http://localhost:5000/auth/google`;
+    window.location.href = buildApiUrl('/api/auth/google');
   };
 
   return (

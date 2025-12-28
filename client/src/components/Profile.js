@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import { apiAxios } from '../utils/api';
 import '../Events.css';
 
 const glassCard = {
@@ -45,7 +45,7 @@ const Profile = () => {
     const fetchProfile = async () => {
       try {
   const token = localStorage.getItem('clockdin_token');
-        const res = await axios.get('/api/users/me', {
+        const res = await apiAxios.get('/api/users/me', {
           headers: { 'x-auth-token': token }
         });
         if (res.data && res.data.profile) {
@@ -104,7 +104,7 @@ const Profile = () => {
   const handleSave = async () => {
     try {
   const token = localStorage.getItem('clockdin_token');
-      await axios.put('/api/users/profile', form, {
+      await apiAxios.put('/api/users/profile', form, {
         headers: { 'x-auth-token': token }
       });
       setProfile({ ...form });

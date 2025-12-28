@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import './Chatbot.css';
+import { apiFetch } from '../utils/api';
 
 const Chatbot = () => {
   const [open, setOpen] = useState(false);
@@ -24,7 +25,7 @@ const Chatbot = () => {
     setInput('');
     setLoading(true);
     try {
-      const res = await fetch('/api/chatbot', {
+      const res = await apiFetch('/api/chatbot', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: userMsg })

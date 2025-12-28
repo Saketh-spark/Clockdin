@@ -2,6 +2,7 @@
 import React, { useEffect, useState } from 'react';
 import EventCard from './EventCard';
 import '../Events.css';
+import { apiFetch } from '../utils/api';
 
 const Notifications = () => {
   const [notifiedEvents, setNotifiedEvents] = useState(() => {
@@ -42,7 +43,7 @@ const Notifications = () => {
     const token = localStorage.getItem('clockdin_token');
     if (!token) return;
     try {
-      await fetch(`/api/users/notifications/subscribe/${id}`, {
+      await apiFetch(`/api/users/notifications/subscribe/${id}`, {
         method: 'DELETE',
         headers: { 'x-auth-token': token }
       });
