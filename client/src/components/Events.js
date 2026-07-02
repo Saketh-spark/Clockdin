@@ -216,12 +216,6 @@ const Events = () => {
     setBookmarkedOnly(false);
   };
 
-  const saveFilters = () => {
-    localStorage.setItem('clockdin_event_filters', JSON.stringify({
-      globalSearch, activeCategory, startDate, endDate, quickPreset,
-      modeFilters, levelFilters, selectedTags, sortBy, bookmarkedOnly,
-    }));
-  };
 
   // ── Filtering ─────────────────────────────────────────────────
   let filteredEvents = events.filter(event => {

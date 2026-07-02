@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { apiFetch } from '../utils/api';
 
 const NOTIFY_IDS_KEY = 'clockdin_notify_ids';
@@ -49,21 +49,6 @@ const EventCard = ({ event, onBookmark, isBookmarked, showBookmark = false, onCl
     window.addEventListener('notify-ids-changed', refresh);
     return () => window.removeEventListener('notify-ids-changed', refresh);
   }, [event._id]);
-
-
-  // ── Helper: returns true if value is empty / TBD / N/A ──
-  const isTBD = (val) =>
-    !val ||
-    /^\s*(tbd|n\/a|unknown|—|–|-+|null|undefined)\s*$/i.test(String(val).trim());
-
-  const TBA = <span style={{color:'#94a3b8', fontStyle:'italic', fontSize:'0.82rem'}}>To be announced</span>;
-
-  const locationLabel  = !isTBD(event.location) ? event.location : (!isTBD(event.mode) ? (event.mode.charAt(0).toUpperCase() + event.mode.slice(1)) : TBA);
-  const eventDateLabel = event.eventDate ? new Date(event.eventDate).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) : TBA;
-  const deadlineLabel  = event.deadline  ? new Date(event.deadline).toLocaleDateString(undefined,  { year: 'numeric', month: 'short', day: 'numeric' }) : TBA;
-  const durationLabel  = !isTBD(event.duration) ? event.duration : TBA;
-  const modeLabel      = !isTBD(event.mode)      ? event.mode     : TBA;
-  const tags = Array.isArray(event.tags) && event.tags.length ? event.tags : [];
 
 
   const toggleNotify = async (e) => {
