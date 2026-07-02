@@ -4,6 +4,7 @@ const Reminder = require('../models/reminder.model');
 const Event = require('../models/event.model');
 const NotificationSubscription = require('../models/notificationSubscription.model');
 const Notification = require('../models/notification.model');
+const User = require('../models/user.model');
 const axios = require('axios');
 
 const timers = new Map();
