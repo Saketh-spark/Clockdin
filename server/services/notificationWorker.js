@@ -143,19 +143,20 @@ async function sendReminderAndNotification(user, event, daysLeft, emailFn, targe
         sentEmail: false
       });
     }
-
     // ── 2. Send email (respect user preference) ───────────────
+    let emailSent = true;
     if (user.emailNotifications !== false) {
       // Pass a patched event so the email template uses the correct date
       const eventForEmail = usingEventDate
         ? { ...event.toObject ? event.toObject() : event, deadline: null }
         : event;
-      await emailFn(user, eventForEmail, daysLeft);
+      emailSent = await emailFn(user, eventForEmail, daysLeft);
     } else {
       console.log(`[NotifWorker] Email skipped (preference off) for ${user.email}`);
     }
 
-    return true;
+    // Only return true (which updates the DB flags to true) if the email successfully sent
+    return emailSent;
   } catch (err) {
     console.error(`[NotifWorker] sendReminderAndNotification error for ${user.email}:`, err.message);
     return false;
