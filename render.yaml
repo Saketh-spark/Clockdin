@@ -1,0 +1,26 @@
+# render.yaml — Render deployment configuration
+# This file lets Render auto-configure your web service
+# Docs: https://render.com/docs/render-yaml-reference
+
+services:
+  - type: web
+    name: clockdin-api
+    runtime: node
+    rootDir: server
+    buildCommand: npm install
+    startCommand: node server.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: MONGO_URI
+        sync: false      # Set this in Render dashboard (secret)
+      - key: JWT_SECRET
+        sync: false      # Set this in Render dashboard (secret)
+      - key: EMAIL_USER
+        sync: false      # Set this in Render dashboard (secret)
+      - key: EMAIL_PASS
+        sync: false      # Set this in Render dashboard (secret)
+      - key: GEMINI_API_KEY
+        sync: false      # Set this in Render dashboard (secret)
+      - key: CLIENT_URL
+        value: https://clockdin000007.vercel.app   # Update after Vercel deploy

@@ -10,12 +10,19 @@ const Chatbot = () => {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const messagesEndRef = useRef(null);
+  const inputRef = useRef(null);
 
   useEffect(() => {
     if (open && messagesEndRef.current) {
       messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
   }, [messages, open]);
+
+  useEffect(() => {
+    if (open && inputRef.current) {
+      inputRef.current.focus();
+    }
+  }, [open]);
 
   const sendMessage = async (e) => {
     e.preventDefault();
@@ -30,10 +37,12 @@ const Chatbot = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: userMsg })
       });
+      if (!res.ok) throw new Error('Chatbot request failed');
       const data = await res.json();
-      setMessages(msgs => [...msgs, { from: 'bot', text: data.reply }]);
+      const replyText = data?.reply || 'Sorry, I could not answer that.';
+      setMessages(msgs => [...msgs, { from: 'bot', text: replyText }]);
     } catch {
-      setMessages(msgs => [...msgs, { from: 'bot', text: 'Sorry, I could not answer that.' }]);
+      setMessages(msgs => [...msgs, { from: 'bot', text: 'Sorry, I could not answer that. Please try again in a moment.' }]);
     } finally {
       setLoading(false);
     }
@@ -41,14 +50,20 @@ const Chatbot = () => {
 
   return (
     <>
-      <button className="chatbot-fab" onClick={() => setOpen(o => !o)}>
+      <button
+        type="button"
+        className="chatbot-fab"
+        onClick={() => setOpen(o => !o)}
+        aria-label="Open chat assistant"
+        title="Chat with Clockdin AI"
+      >
         <i className="bi bi-chat-dots" style={{fontSize:'1.5rem'}}></i>
       </button>
       {open && (
         <div className="chatbot-window">
           <div className="chatbot-header">
             <span>Clockdin AI Chatbot</span>
-            <button className="chatbot-close" onClick={() => setOpen(false)}>&times;</button>
+            <button type="button" className="chatbot-close" onClick={() => setOpen(false)} aria-label="Close chat">&times;</button>
           </div>
           <div className="chatbot-messages">
             {messages.map((msg, i) => (
@@ -60,6 +75,7 @@ const Chatbot = () => {
             <input
               className="chatbot-input"
               type="text"
+              ref={inputRef}
               value={input}
               onChange={e => setInput(e.target.value)}
               placeholder="Type your question..."

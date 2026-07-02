@@ -31,9 +31,12 @@ router.post('/', async (req, res) => {
 router.post('/trigger', async (req, res) => {
   try {
     const now = new Date();
-    const reminders = await Reminder.find({ sent: false, remindAt: { $lte: now } }).populate('event');
+    const ONE_HOUR_AGO = new Date(now.getTime() - 60 * 60 * 1000);
+    const reminders = await Reminder.find({
+      sent: false,
+      remindAt: { $lte: now, $gte: ONE_HOUR_AGO }
+    }).populate('event');
     const transporter = makeTransporter();
-      // verify transporter
       try {
         await transporter.verify();
         console.log('SMTP transporter verified');
@@ -42,12 +45,34 @@ router.post('/trigger', async (req, res) => {
       }
       const results = [];
     for (const reminder of reminders) {
+      const event = reminder.event;
+
+      // Skip if event has already passed
+      const eventDate = event?.eventDate || event?.deadline;
+      if (eventDate && new Date(eventDate) < now) {
+        reminder.sent = true;
+        await reminder.save();
+        results.push({ id: reminder._id, status: 'skipped', reason: 'event already passed' });
+        continue;
+      }
+
       try {
+          const remWithUser = await Reminder.findById(reminder._id).populate('user', 'name');
+          const userName = (remWithUser.user && remWithUser.user.name) ? remWithUser.user.name.split(' ')[0] : 'User';
+          const { getPersonalEventTemplate } = require('../utils/emailTemplates');
+          
+          const eventTitle = event?.title || 'Event';
+          const targetDate = event?.eventDate || event?.deadline;
+          const typeLabel = event?.category ? (event.category.charAt(0).toUpperCase() + event.category.slice(1) + ' Event') : 'Scheduled Event';
+          
+          const htmlContent = getPersonalEventTemplate(userName, eventTitle, targetDate, typeLabel);
+
           const info = await transporter.sendMail({
             from: process.env.EMAIL_USER,
             to: reminder.email,
-            subject: `Event Reminder: ${reminder.event?.title || 'Event'}`,
-            text: `Hi! This is a reminder for the event "${reminder.event?.title || ''}" happening on ${reminder.event?.eventDate?.toLocaleString() || ''}.`
+            subject: `Event Reminder: ${eventTitle}`,
+            text: `Hi ${userName}! This is a reminder for the event "${eventTitle}" happening on ${targetDate ? new Date(targetDate).toLocaleDateString() : 'the scheduled date'}.`,
+            html: htmlContent
           });
           reminder.sent = true;
           await reminder.save();

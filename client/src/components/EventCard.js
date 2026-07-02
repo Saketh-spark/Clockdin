@@ -1,115 +1,119 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { apiFetch } from '../utils/api';
-import { getNotificationStorageKeys } from '../utils/notificationStorage';
+
+const NOTIFY_IDS_KEY = 'clockdin_notify_ids';
+
+function getStoredNotifyIds() {
+  try { return JSON.parse(localStorage.getItem(NOTIFY_IDS_KEY) || '[]'); } catch { return []; }
+}
+function saveNotifyIds(ids) {
+  localStorage.setItem(NOTIFY_IDS_KEY, JSON.stringify(ids));
+}
 
 const EventCard = ({ event, onBookmark, isBookmarked, showBookmark = false, onClick, showActions = true }) => {
-  const [subscribed, setSubscribed] = useState(false);
+  const [subscribed, setSubscribed] = useState(() => getStoredNotifyIds().includes(String(event._id)));
   const [loadingNotify, setLoadingNotify] = useState(false);
   const [isShareOpen, setIsShareOpen] = useState(false);
   const [copyMessage, setCopyMessage] = useState('');
   const shareWrapperRef = useRef(null);
   const copyTimerRef = useRef(null);
-  const { idsKey, itemsKey } = getNotificationStorageKeys();
 
+  // Sync subscription state with server on mount
   useEffect(() => {
-    const stored = JSON.parse(localStorage.getItem(idsKey) || '[]');
-    setSubscribed(stored.includes(event._id));
-  }, [event._id, idsKey]);
+    const token = localStorage.getItem('clockdin_token');
+    if (!token) return;
 
+    // Check local cache first for instant UI
+    const cached = getStoredNotifyIds();
+    setSubscribed(cached.includes(String(event._id)));
+
+    // Then verify against server
+    apiFetch('/api/notify-me', { headers: { 'x-auth-token': token } })
+      .then(r => r.json())
+      .then(data => {
+        if (data.success && data.data?.eventIds) {
+          saveNotifyIds(data.data.eventIds);
+          setSubscribed(data.data.eventIds.includes(String(event._id)));
+        }
+      })
+      .catch(() => {}); // Silently fail — use cache
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [event._id]);
+
+  // Listen for notify list changes from other cards
   useEffect(() => {
     const refresh = () => {
-      const stored = JSON.parse(localStorage.getItem(idsKey) || '[]');
-      setSubscribed(stored.includes(event._id));
+      const ids = getStoredNotifyIds();
+      setSubscribed(ids.includes(String(event._id)));
     };
-    window.addEventListener('storage', refresh);
-    window.addEventListener('notify-events-changed', refresh);
-    return () => {
-      window.removeEventListener('storage', refresh);
-      window.removeEventListener('notify-events-changed', refresh);
-    };
-  }, [event._id, idsKey]);
+    window.addEventListener('notify-ids-changed', refresh);
+    return () => window.removeEventListener('notify-ids-changed', refresh);
+  }, [event._id]);
 
-  const locationLabel = event.location || 'Location TBD';
-  const eventDateLabel = event.eventDate
-    ? new Date(event.eventDate).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
-    : 'Date TBD';
-  const deadlineLabel = event.deadline
-    ? new Date(event.deadline).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
-    : 'Deadline TBD';
-  const durationLabel = event.duration || 'Duration TBD';
-  const modeLabel = event.mode || 'Mode TBD';
-  const tags = Array.isArray(event.tags) && event.tags.length ? event.tags : ['Opportunities'];
-  const displayTags = tags.slice(0, 2);
-  const extraTagsCount = tags.length > 2 ? tags.length - 2 : 0;
 
-  const updateLocal = (next) => {
-    const ids = JSON.parse(localStorage.getItem(idsKey) || '[]');
-    const items = JSON.parse(localStorage.getItem(itemsKey) || '[]');
+  // ── Helper: returns true if value is empty / TBD / N/A ──
+  const isTBD = (val) =>
+    !val ||
+    /^\s*(tbd|n\/a|unknown|—|–|-+|null|undefined)\s*$/i.test(String(val).trim());
 
-    const ensureEventShape = () => ({
-      _id: event._id,
-      id: event._id,
-      title: event.title,
-      description: event.description,
-      deadline: event.deadline,
-      eventDate: event.eventDate,
-      location: event.location,
-      type: event.type,
-      category: event.category,
-      mode: event.mode,
-      difficulty: event.difficulty,
-      organizerName: event.organizerName,
-      tags: event.tags,
-      applyLink: event.applyLink,
-      link: event.link
-    });
+  const TBA = <span style={{color:'#94a3b8', fontStyle:'italic', fontSize:'0.82rem'}}>To be announced</span>;
 
-    let updatedIds;
-    let updatedItems;
+  const locationLabel  = !isTBD(event.location) ? event.location : (!isTBD(event.mode) ? (event.mode.charAt(0).toUpperCase() + event.mode.slice(1)) : TBA);
+  const eventDateLabel = event.eventDate ? new Date(event.eventDate).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) : TBA;
+  const deadlineLabel  = event.deadline  ? new Date(event.deadline).toLocaleDateString(undefined,  { year: 'numeric', month: 'short', day: 'numeric' }) : TBA;
+  const durationLabel  = !isTBD(event.duration) ? event.duration : TBA;
+  const modeLabel      = !isTBD(event.mode)      ? event.mode     : TBA;
+  const tags = Array.isArray(event.tags) && event.tags.length ? event.tags : [];
 
-    if (next) {
-      updatedIds = Array.from(new Set([...ids, event._id]));
-      const exists = items.some(it => (it._id || it.id) === event._id);
-      updatedItems = exists ? items : [...items, ensureEventShape()];
-    } else {
-      updatedIds = ids.filter(id => id !== event._id);
-      updatedItems = items.filter(it => (it._id || it.id) !== event._id);
-    }
-
-    localStorage.setItem(idsKey, JSON.stringify(updatedIds));
-    localStorage.setItem(itemsKey, JSON.stringify(updatedItems));
-    window.dispatchEvent(new Event('notify-events-changed'));
-  };
 
   const toggleNotify = async (e) => {
     e.stopPropagation();
     if (loadingNotify) return;
-    setLoadingNotify(true);
+
     const token = localStorage.getItem('clockdin_token');
+    if (!token) {
+      alert('Please log in to enable notifications.');
+      return;
+    }
+
+    setLoadingNotify(true);
     const targetState = !subscribed;
+
+    // Optimistic update
+    setSubscribed(targetState);
+    const prevIds = getStoredNotifyIds();
+    const newIds = targetState
+      ? [...new Set([...prevIds, String(event._id)])]
+      : prevIds.filter(id => id !== String(event._id));
+    saveNotifyIds(newIds);
+    window.dispatchEvent(new Event('notify-ids-changed'));
+
     try {
-      if (token) {
-        if (targetState) {
-          await apiFetch('/api/users/notifications/subscribe', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'x-auth-token': token },
-            body: JSON.stringify({ eventId: event._id })
-          });
-        } else {
-          await apiFetch(`/api/users/notifications/subscribe/${event._id}`, {
-            method: 'DELETE',
-            headers: { 'x-auth-token': token }
-          });
-        }
+      if (targetState) {
+        // Subscribe
+        await apiFetch('/api/notify-me', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-auth-token': token },
+          body: JSON.stringify({ eventId: event._id })
+        });
+      } else {
+        // Unsubscribe
+        await apiFetch(`/api/notify-me/${event._id}`, {
+          method: 'DELETE',
+          headers: { 'x-auth-token': token }
+        });
       }
-      updateLocal(targetState);
-      setSubscribed(targetState);
     } catch (err) {
+      // Revert optimistic update on failure
       console.error('Notify toggle failed', err);
+      setSubscribed(!targetState);
+      saveNotifyIds(prevIds);
+      window.dispatchEvent(new Event('notify-ids-changed'));
     } finally {
       setLoadingNotify(false);
     }
   };
+
 
   const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
   const rawEventIdentifier = event._id || event.id || event.title || 'event';
@@ -178,10 +182,10 @@ const EventCard = ({ event, onBookmark, isBookmarked, showBookmark = false, onCl
         <div>
           <div className="d-flex align-items-center mb-2 justify-content-between">
             <div className="d-flex align-items-center">
-              <span className="event-badge me-2">{event.type}</span>
-              {event.difficulty && (
-                <span className={`difficulty-badge ${event.difficulty.toLowerCase()}`}>
-                  {event.difficulty}
+              <span className="event-badge me-2 text-capitalize">{event.category || event.type}</span>
+              {(event.skillLevel || event.difficulty) && (
+                <span className={`difficulty-badge ${(event.skillLevel || event.difficulty).toLowerCase()}`}>
+                  {event.skillLevel || event.difficulty}
                 </span>
               )}
             </div>
@@ -250,51 +254,110 @@ const EventCard = ({ event, onBookmark, isBookmarked, showBookmark = false, onCl
               )}
             </div>
           </div>
-          <h5 className="card-title fw-bold mb-1" style={{color:'#3b5bfd'}}>{event.title}</h5>
-          <p className="card-text mb-2" style={{minHeight:'60px'}}>{event.description}</p>
-          
+          {/* Title — STRICT 2-line clamp, never grows */}
+          <h5 className="card-title fw-bold mb-1" style={{
+            color:'#3b5bfd',
+            display: '-webkit-box',
+            WebkitLineClamp: 2,
+            WebkitBoxOrient: 'vertical',
+            overflow: 'hidden',
+            minHeight: '2.4em'
+          }}>
+            {event.title}
+          </h5>
+
+          {/* Description — STRICT 2-line clamp, never grows */}
+          <p className="card-text mb-2 text-muted" style={{
+            display: '-webkit-box',
+            WebkitLineClamp: 2,
+            WebkitBoxOrient: 'vertical',
+            overflow: 'hidden',
+            minHeight: '2.8em',
+            lineHeight: '1.4em',
+            fontSize: '0.9rem'
+          }}>{event.description}</p>
+
+          {/* Info rows — EACH must truncate to single line */}
           <div className="event-meta-list mb-2">
             <div className="event-meta d-flex align-items-center mb-1">
-              <i className="bi bi-geo-alt me-2"></i>
-              <span>{locationLabel}</span>
+              <i className="bi bi-geo-alt me-2 flex-shrink-0"></i>
+              <span className="text-truncate">{event.location || 'Location TBA'}</span>
             </div>
+            
             <div className="event-meta d-flex align-items-center mb-1">
-              <i className="bi bi-calendar-event me-2"></i>
-              <span><strong>Event:</strong> {eventDateLabel}</span>
+              <i className="bi bi-calendar-event me-2 flex-shrink-0"></i>
+              <span className="text-truncate">
+                <strong>Event:&nbsp;</strong>
+                {event.eventDate ? new Date(event.eventDate).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) : 'Date TBA'}
+              </span>
             </div>
+            
             <div className="event-meta d-flex align-items-center mb-1">
-              <i className="bi bi-clock me-2"></i>
-              <span><strong>Deadline:</strong> {deadlineLabel}</span>
+              <i className="bi bi-clock me-2 flex-shrink-0"></i>
+              <span className="text-truncate">
+                <strong>Deadline:&nbsp;</strong>
+                {event.deadline ? new Date(event.deadline).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) : 'Date TBA'}
+              </span>
             </div>
+
+            {/* CRITICAL: only render Duration row if duration exists AND is short. Otherwise omit it entirely. */}
+            {event.duration && event.duration.length < 30 && (
+              <div className="event-meta d-flex align-items-center mb-1">
+                <i className="bi bi-hourglass-split me-2 flex-shrink-0"></i>
+                <span className="text-truncate"><strong>Duration:&nbsp;</strong>{event.duration}</span>
+              </div>
+            )}
+            
             <div className="event-meta d-flex align-items-center mb-1">
-              <i className="bi bi-hourglass-split me-2"></i>
-              <span><strong>Duration:</strong> {durationLabel}</span>
-            </div>
-            <div className="event-meta d-flex align-items-center mb-1">
-              <i className="bi bi-laptop me-2"></i>
-              <span><strong>Mode:</strong> {modeLabel}</span>
+              <i className="bi bi-laptop me-2 flex-shrink-0"></i>
+              <span className="text-truncate text-capitalize">
+                <strong>Mode:&nbsp;</strong>{event.mode || 'TBA'}
+              </span>
             </div>
           </div>
 
-          <div className="event-tags mb-2">
-            {displayTags.map((tag, idx) => (
-              <span key={idx} className="event-tag">{tag}</span>
+          {/* Tags row — max 3 shown, rest collapsed into +N, single row, never wraps */}
+          <div className="event-tags mb-2 d-flex align-items-center flex-nowrap overflow-hidden" style={{gap: '0.3rem', minHeight: '1.8em'}}>
+            {(event.tags || []).slice(0, 3).map((tag, idx) => (
+              <span key={idx} className="event-tag flex-shrink-0 text-truncate" style={{maxWidth: '100px'}}>
+                {tag}
+              </span>
             ))}
-            {extraTagsCount > 0 && (
-              <span className="event-tag">+{extraTagsCount}</span>
+            {(event.tags || []).length > 3 && (
+              <span className="event-tag flex-shrink-0">
+                +{(event.tags || []).length - 3}
+              </span>
+            )}
+            {!(event.tags && event.tags.length > 0) && (
+              <span style={{color:'#94a3b8', fontStyle:'italic', fontSize:'0.82rem'}}>No tags</span>
             )}
           </div>
+
+
         </div>
         
         {showActions && (
           <div className="d-flex gap-2">
             <button
-              className={subscribed ? 'btn btn-success flex-fill' : 'btn btn-outline-primary flex-fill'}
+              className="btn flex-fill"
               onClick={toggleNotify}
               disabled={loadingNotify}
-              style={{fontWeight:700, fontSize:'0.95rem', borderRadius:'0.8rem'}}
+              style={{
+                fontWeight: 700,
+                fontSize: '0.92rem',
+                borderRadius: '0.8rem',
+                transition: 'all 0.2s',
+                background: subscribed ? '#4f46e5' : 'transparent',
+                color: subscribed ? '#fff' : '#4f46e5',
+                border: subscribed ? '1.5px solid #4f46e5' : '1.5px solid #c7d2fe',
+              }}
             >
-              {subscribed ? <><i className="bi bi-check-lg me-1"></i>Notification Set</> : 'Notify Me'}
+              {loadingNotify
+                ? <><span className="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>...</>
+                : subscribed
+                  ? <><i className="bi bi-bell-fill me-1"></i>Notifying ✓</>
+                  : <><i className="bi bi-bell me-1"></i>Notify Me</>
+              }
             </button>
             <a
               href={event.applyLink || event.link || '#'}

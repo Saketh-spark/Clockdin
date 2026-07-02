@@ -5,7 +5,7 @@ const userSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true },
   password: { type: String, required: true },
   googleId: { type: String, index: true, unique: false }, // optional
-   avatar: { type: String },
+  avatar: { type: String },
   createdAt: { type: Date, default: Date.now },
   bookmarks: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Event' }],
   myEvents: [{
@@ -16,12 +16,17 @@ const userSchema = new mongoose.Schema({
     location: String,
     category: String,
     reminder: String,
+    reminderSent: { type: Boolean, default: false }, // set true after notification fires
   }],
   notifications: [{
     message: String,
     date: Date,
     read: { type: Boolean, default: false },
   }],
+  // Notification preferences
+  emailNotifications: { type: Boolean, default: true  },  // send email for deadline reminders
+  eventReminders:     { type: Boolean, default: true  },  // create deadline reminder notifications
+  weeklyDigest:       { type: Boolean, default: false },  // weekly digest emails
   profile: {
     phone: String,
     location: String,
@@ -39,3 +44,4 @@ const userSchema = new mongoose.Schema({
 });
 
 module.exports = mongoose.model('User', userSchema);
+

@@ -1,4 +1,5 @@
 const nodemailer = require('nodemailer');
+const cron = require('node-cron');
 const Reminder = require('../models/reminder.model');
 const Event = require('../models/event.model');
 const NotificationSubscription = require('../models/notificationSubscription.model');
@@ -23,9 +24,55 @@ async function sendReminder(reminder) {
     // Ensure populated event
     const rem = await Reminder.findById(reminder._id).populate('event');
     const to = rem.email;
-    const subject = `Event Reminder: ${rem.event?.title || 'Event'}`;
-    const text = `Hi! This is a reminder for the event "${rem.event?.title || ''}" happening on ${rem.event?.eventDate?.toLocaleString() || ''}.`;
-    const info = await transporter.sendMail({ from: process.env.EMAIL_USER, to, subject, text });
+    const event = rem.event;
+
+    // Skip if event has already passed
+    const eventDate = event?.eventDate || event?.deadline;
+    if (eventDate && new Date(eventDate) < new Date()) {
+      console.log(`Skipping reminder ${rem._id} — event "${event?.title}" has already passed.`);
+      rem.sent = true;
+      await rem.save();
+      return { success: false, skipped: true, reason: 'event already passed' };
+    }
+
+    // If event is null, it's a personal event
+    if (!event) {
+      const remWithUser = await Reminder.findById(reminder._id).populate('user', 'name');
+      const reminderTitle = remWithUser.title || 'Personal Event';
+      const userName = (remWithUser.user && remWithUser.user.name) ? remWithUser.user.name.split(' ')[0] : 'User';
+      const { getPersonalEventTemplate } = require('./emailTemplates');
+      const htmlContent = getPersonalEventTemplate(userName, reminderTitle, remWithUser.remindAt);
+
+      const info = await transporter.sendMail({
+        from: process.env.EMAIL_USER,
+        to,
+        subject: `Reminder: ${reminderTitle}`,
+        text: `Hi ${userName}! This is your personal reminder for: "${reminderTitle}".`,
+        html: htmlContent
+      });
+      rem.sent = true;
+      await rem.save();
+      console.log('Scheduled personal reminder sent', { id: rem._id.toString(), messageId: info.messageId });
+      if (timers.has(rem._id.toString())) {
+        clearTimeout(timers.get(rem._id.toString()));
+        timers.delete(rem._id.toString());
+      }
+      return { success: true, info };
+    }
+
+    const remWithUser = await Reminder.findById(reminder._id).populate('user', 'name');
+    const userName = (remWithUser.user && remWithUser.user.name) ? remWithUser.user.name.split(' ')[0] : 'User';
+    const { getPersonalEventTemplate } = require('./emailTemplates');
+    
+    const eventTitle = event?.title || 'Event';
+    const targetDate = event?.eventDate || event?.deadline;
+    const typeLabel = event?.category ? (event.category.charAt(0).toUpperCase() + event.category.slice(1) + ' Event') : 'Scheduled Event';
+    
+    const htmlContent = getPersonalEventTemplate(userName, eventTitle, targetDate, typeLabel);
+
+    const subject = `Event Reminder: ${eventTitle}`;
+    const text = `Hi ${userName}! This is a reminder for the event "${eventTitle}" happening on ${targetDate ? new Date(targetDate).toLocaleDateString() : 'the scheduled date'}.`;
+    const info = await transporter.sendMail({ from: process.env.EMAIL_USER, to, subject, text, html: htmlContent });
     rem.sent = true;
     await rem.save();
     console.log('Scheduled reminder sent', { id: rem._id.toString(), messageId: info.messageId });
@@ -76,11 +123,37 @@ function scheduleReminder(reminder) {
 async function rescheduleAll() {
   try {
     const now = new Date();
-    const reminders = await Reminder.find({ sent: false, remindAt: { $exists: true } });
-    for (const r of reminders) {
-      scheduleReminder(r);
+    const ONE_HOUR_AGO = new Date(now.getTime() - 60 * 60 * 1000);
+
+    // Auto-expire stale reminders (overdue by more than 1 hour) instead of firing them
+    const expired = await Reminder.updateMany(
+      { sent: false, remindAt: { $lt: ONE_HOUR_AGO } },
+      { $set: { sent: true } }
+    );
+    if (expired.modifiedCount > 0) {
+      console.log(`rescheduleAll: expired ${expired.modifiedCount} stale reminder(s).`);
     }
-    console.log('Rescheduled', reminders.length, 'reminders');
+
+    // Only schedule reminders that are still in the future (or due within the last hour)
+    const reminders = await Reminder.find({
+      sent: false,
+      remindAt: { $exists: true, $gte: ONE_HOUR_AGO }
+    }).populate('event');
+
+    let scheduled = 0;
+    for (const r of reminders) {
+      // Also skip if the event itself has already passed
+      const eventDate = r.event?.eventDate || r.event?.deadline;
+      if (eventDate && new Date(eventDate) < now) {
+        r.sent = true;
+        await r.save();
+        console.log(`rescheduleAll: skipped reminder for past event "${r.event?.title}".`);
+        continue;
+      }
+      scheduleReminder(r);
+      scheduled++;
+    }
+    console.log(`Rescheduled ${scheduled} reminder(s).`);
   } catch (err) {
     console.error('Error rescheduling reminders:', err.message);
   }
@@ -101,87 +174,69 @@ function scheduleBookmarkedNotifications() {
   console.log('Scheduled daily job for bookmarked events notifications');
 }
 
-async function sendEventNotifications() {
+async function sendDeadlineNotifications() {
+  const now = new Date();
   try {
-    const now = new Date();
-    const twoDaysFromNow = new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000);
-
     const events = await Event.find({
-      deadline: { $gte: now, $lte: twoDaysFromNow },
-      notificationSent: false,
-    }).populate('usersToNotify');
+      deadline: { $exists: true, $gte: now, $lte: new Date(now.getTime() + 48 * 60 * 60 * 1000) },
+      status: 'published',
+      notificationWindow: '2_days',
+    });
+    console.log(
+      `[${now.toISOString()}] Deadline cron started - found ${events.length} event(s) (now - ${new Date(now.getTime() + 48 * 60 * 60 * 1000).toISOString()})`
+    );
 
     for (const event of events) {
-      if (event.usersToNotify.length > 0) {
-        const emails = event.usersToNotify.map(user => user.email);
-        const subject = `Reminder: Event "${event.title}" is ending soon!`;
-        const text = `Hi there,\n\nThis is a reminder that the event "${event.title}" is ending on ${event.deadline.toDateString()}.\n\nMake sure you don't miss it!\n\nBest regards,\nClockdin Team`;
+      const subs = await NotificationSubscription.find({ event: event._id, sent: false, subscribed: true })
+        .populate({ path: 'user', select: 'name email' });
+      if (!subs.length) continue;
 
-        await transporter.sendMail({
-          from: process.env.EMAIL_USER,
-          to: emails.join(','),
-          subject,
-          text,
-        });
+      const subject = `Reminder: ${event.title} ends in 2 days`;
+      const softDeadline = new Date(event.deadline);
+      const mode = event.mode || event.type || 'Online';
+      const bodyTemplate = user =>
+        `Hi ${user.name || 'Participant'},\n\n` +
+        `The event "${event.title}" has its deadline on ${softDeadline.toDateString()}.\n` +
+        `Mode: ${mode}.\n` +
+        `View the event: ${event.applyLink || 'https://clockdin000007.vercel.app'},\n\n` +
+        `Best,\nClockdin Team`;
 
-        console.log(`Sent deadline notification for event: ${event.title}`);
-      }
+      console.log(`Dispatching deadline notifications for event: ${event.title} to ${subs.length} subscriber(s)`);
 
-      // Mark the event as notification sent to avoid re-sending
-      event.notificationSent = true;
-      await event.save();
-    }
-  } catch (error) {
-    console.error('Error sending event deadline notifications:', error);
-  }
-}
-
-function scheduleEventNotifications() {
-  const ONE_DAY = 24 * 60 * 60 * 1000; // 24 hours
-  setInterval(sendEventNotifications, ONE_DAY);
-  console.log('Scheduled daily job for event deadline notifications.');
-}
-
-async function sendSubscriptionNotifications() {
-  try {
-    const now = new Date();
-    const targetStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 2, 0, 0, 0);
-    const targetEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 2, 23, 59, 59, 999);
-
-    const subs = await NotificationSubscription.find({ sent: false })
-      .populate('event')
-      .populate('user');
-
-    for (const sub of subs) {
-      const deadline = sub.event?.deadline ? new Date(sub.event.deadline) : null;
-      if (!deadline) continue;
-      if (deadline >= targetStart && deadline <= targetEnd) {
-        const to = sub.user.email;
-        const subject = `Reminder: ${sub.event.title} deadline in 2 days`;
-        const text = `Hi ${sub.user.name || ''},\n\nYou subscribed to be notified about "${sub.event.title}". The deadline is ${deadline.toDateString()}.\n\nGood luck!\nClockdin Team`;
-        await transporter.sendMail({ from: process.env.EMAIL_USER, to, subject, text });
-        sub.sent = true;
-        await sub.save();
-        console.log('Sent subscription notification', { sub: sub._id.toString(), event: sub.event.title, to });
+      for (const sub of subs) {
+        const user = sub.user;
+        if (!user || !user.email) continue;
+        try {
+          await transporter.sendMail({
+            from: process.env.EMAIL_USER,
+            to: user.email,
+            subject,
+            text: bodyTemplate(user),
+          });
+          sub.sent = true;
+          sub.notificationSentAt = new Date();
+          await sub.save();
+          console.log('Notification sent', { event: event.title, user: user.email, subId: sub._id.toString() });
+        } catch (err) {
+          console.error('Error sending deadline notification', { error: err.message, event: event.title, user: user.email });
+        }
       }
     }
   } catch (err) {
-    console.error('Error sending subscription notifications:', err.message);
+    console.error('Error while sending deadline notifications:', err.message);
   }
 }
 
-function scheduleSubscriptionNotifications() {
-  const ONE_MINUTE = 60 * 1000;
-  // Run once immediately to catch any already-due items
-  sendSubscriptionNotifications();
-  setInterval(sendSubscriptionNotifications, ONE_MINUTE);
-  console.log('Scheduled 1-minute interval for subscription deadline notifications.');
+function scheduleDeadlineNotifications() {
+  cron.schedule('*/1 * * * *', async () => {
+    await sendDeadlineNotifications();
+  });
+  console.log('Scheduled cron job for deadline-based notifications (every minute)');
 }
 
 // Call this function to start the scheduler
 scheduleBookmarkedNotifications();
-scheduleEventNotifications();
-scheduleSubscriptionNotifications();
+scheduleDeadlineNotifications();
 
 module.exports = {
   sendReminder,
@@ -189,8 +244,6 @@ module.exports = {
   rescheduleAll,
   notifyBookmarkedEvents,
   scheduleBookmarkedNotifications,
-  sendEventNotifications,
-  scheduleEventNotifications,
-  sendSubscriptionNotifications,
-  scheduleSubscriptionNotifications,
+  sendDeadlineNotifications,
+  scheduleDeadlineNotifications,
 };

@@ -7,6 +7,7 @@ const User = require('../models/user.model');
 const Event = require('../models/event.model');
 const Reminder = require('../models/reminder.model');
 const NotificationSubscription = require('../models/notificationSubscription.model');
+const Notification = require('../models/notification.model');
 const scheduler = require(path.join(__dirname, '../utils/scheduler'));
 const router = express.Router();
 const profileFields = [
@@ -68,9 +69,9 @@ router.post('/login', async (req, res) => {
   }
 });
 
-// Get current user
+// Get current user — lean() for fastest possible read
 router.get('/me', auth, async (req, res) => {
-  const user = await User.findById(req.user.id).select('-password');
+  const user = await User.findById(req.user.id).select('-password').lean();
   res.json(user);
 });
 
@@ -79,8 +80,34 @@ router.post('/bookmarks', auth, async (req, res) => {
   const { eventId } = req.body;
   if (!eventId) return res.status(400).json({ msg: 'Event ID required' });
   const user = await User.findById(req.user.id);
-  if (!user.bookmarks.includes(eventId)) user.bookmarks.push(eventId);
+  const alreadyBookmarked = user.bookmarks.includes(eventId);
+  if (!alreadyBookmarked) user.bookmarks.push(eventId);
   await user.save();
+
+  // Create a system notification when user bookmarks an event
+  if (!alreadyBookmarked) {
+    setImmediate(async () => {
+      try {
+        const event = await Event.findById(eventId).select('title organization category').lean();
+        const eventTitle = event ? event.title : 'an event';
+        const org        = event && event.organization ? event.organization : '';
+        const cat        = event && event.category    ? event.category    : '';
+        const msgParts   = [org, cat].filter(Boolean);
+        await Notification.create({
+          userId:  user._id,
+          eventId: eventId,
+          type:    'system',
+          title:   `Saved: ${eventTitle}`,
+          message: msgParts.length > 0 ? msgParts.join(' · ') : 'Event bookmarked',
+          isRead:  false,
+        });
+      } catch (err) {
+        console.error('[BG] Failed to create bookmark notification:', err.message);
+      }
+    });
+  }
+
+
   res.json(user.bookmarks);
 });
 router.delete('/bookmarks/:eventId', auth, async (req, res) => {
@@ -103,8 +130,11 @@ router.post('/notifications/subscribe', auth, async (req, res) => {
   try {
     await NotificationSubscription.findOneAndUpdate(
       { user: req.user.id, event: eventId },
-      { $set: { sent: false } },
-      { upsert: true, new: true }
+      {
+        $set: { sent: false, subscribed: true },
+        $unset: { notificationSentAt: 1 },
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
     );
     res.json({ subscribed: true, eventId });
   } catch (err) {
@@ -126,11 +156,6 @@ router.delete('/notifications/subscribe/:eventId', auth, async (req, res) => {
 router.post('/myevents', auth, async (req, res) => {
   try {
     const { title, description, date, time, location, category, reminder, timezoneOffset } = req.body;
-    const user = await User.findById(req.user.id);
-
-    // Save as a subdocument in user's myEvents for UI
-    const myEvent = { title, description, date, time, location, category, reminder };
-    user.myEvents.push(myEvent);
 
     const offsetMinutes = typeof timezoneOffset === 'number' ? timezoneOffset : 0;
     let eventDateTime = null;
@@ -141,80 +166,102 @@ router.post('/myevents', auth, async (req, res) => {
         eventDateTime = parsed;
       } else {
         const fallbackDate = new Date(date);
-        if (!isNaN(fallbackDate.getTime())) {
-          eventDateTime = fallbackDate;
-        }
+        if (!isNaN(fallbackDate.getTime())) eventDateTime = fallbackDate;
       }
-      if (eventDateTime) {
-        eventDateTime.setMinutes(eventDateTime.getMinutes() + offsetMinutes);
-      }
+      if (eventDateTime) eventDateTime.setMinutes(eventDateTime.getMinutes() + offsetMinutes);
     }
 
-    // Also create an Event document so reminders can reference it
-    const eventDoc = await Event.create({
-      title,
-      description,
-      eventDate: eventDateTime || (date ? new Date(date) : undefined),
-      organizerName: user.name,
-      location,
-      createdBy: user._id
+    // Fetch just the user's myEvents (fast, lean)
+    const user = await User.findById(req.user.id).select('myEvents email name').lean();
+    if (!user) return res.status(404).json({ msg: 'User not found' });
+
+    // Build the new event object
+    const myEvent = { title, description, date, time, location, category, reminder };
+    const updatedMyEvents = [...user.myEvents, myEvent];
+
+    // ✅ Respond IMMEDIATELY with optimistic data — don't wait for DB writes
+    res.json(updatedMyEvents);
+
+    // --- All heavy DB work happens in background after response is sent ---
+    setImmediate(async () => {
+      try {
+        const parseMap = {
+          'On time': 0,
+          '5 minutes before': 5 * 60 * 1000,
+          '10 minutes before': 10 * 60 * 1000,
+          '1 hour before': 60 * 60 * 1000,
+          '1 day before': 24 * 60 * 60 * 1000,
+        };
+
+        const needsReminder = reminder && reminder !== 'No reminder';
+
+        // Build update operations
+        const pushOp = { $push: { myEvents: myEvent } };
+        const notifOp = needsReminder ? {
+          $push: {
+            myEvents: myEvent,
+            notifications: {
+              message: `Reminder set for event: ${title} (${reminder})`,
+              time: new Date(),
+              read: false,
+              type: 'reminder',
+              title
+            }
+          }
+        } : pushOp;
+
+        // Single atomic user update (no fetch-mutate-save cycle)
+        await User.findByIdAndUpdate(user._id, notifOp);
+
+        // Only create a Reminder if a reminder was requested
+        // NOTE: We do NOT create an Event document here — personal events must NOT
+        // appear in the main public events feed. They are stored in user.myEvents only.
+        if (needsReminder && eventDateTime) {
+          const offset = parseMap[reminder] || 0;
+          const remindAt = new Date(eventDateTime.getTime() - offset);
+
+          // Create a placeholder event ref for the reminder (marked as personal/non-public)
+          const createdReminder = await Reminder.create({
+            user: user._id,
+            event: null, // No public event doc — personal event only
+            email: user.email,
+            remindAt,
+            title,
+          });
+          console.log('[BG] Created reminder:', { id: createdReminder._id.toString(), remindAt });
+          try {
+            if (scheduler?.scheduleReminder) scheduler.scheduleReminder(createdReminder);
+          } catch (schedErr) {
+            console.error('[BG] Failed to schedule reminder:', schedErr.message);
+          }
+        } else {
+          // No reminder: just ensure myEvents is saved (already done above)
+        }
+      } catch (bgErr) {
+        console.error('[BG] Background save error after myevent add:', bgErr.message);
+      }
     });
 
-    // If reminder selected, compute remindAt and create Reminder document
-    if (reminder && reminder !== 'No reminder') {
-      // compute remindAt based on reminder string
-      let remindAt = null;
-
-      const parseMap = {
-        'On time': 0,
-        '5 minutes before': 5 * 60 * 1000,
-        '10 minutes before': 10 * 60 * 1000,
-        '1 hour before': 60 * 60 * 1000,
-        '1 day before': 24 * 60 * 60 * 1000,
-      };
-
-      if (eventDateTime) {
-        const offset = parseMap[reminder] || 0;
-        remindAt = new Date(eventDateTime.getTime() - offset);
-      } else {
-        // fallback: remind immediately
-        remindAt = new Date();
-      }
-
-      const createdReminder = await Reminder.create({
-        user: user._id,
-        event: eventDoc._id,
-        email: user.email,
-        remindAt
-      });
-      console.log('Created reminder:', { id: createdReminder._id.toString(), email: createdReminder.email, remindAt: createdReminder.remindAt });
-      // schedule the reminder to be sent at the exact time
-      try {
-        if (scheduler?.scheduleReminder) {
-          scheduler.scheduleReminder(createdReminder);
-        }
-      } catch (schedErr) {
-        console.error('Failed to schedule reminder after creation:', schedErr.message);
-      }
-    }
-
-    await user.save();
-    res.json(user.myEvents);
   } catch (err) {
     res.status(500).json({ msg: 'Server error', error: err.message });
   }
 });
+
 router.get('/myevents', auth, async (req, res) => {
-  const user = await User.findById(req.user.id);
-  res.json(user.myEvents);
+  try {
+    // Only select myEvents field — much faster than fetching the full user doc
+    const user = await User.findById(req.user.id).select('myEvents').lean();
+    res.json(user ? user.myEvents : []);
+  } catch (err) {
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
 });
 
 // Update a specific event by index
 router.put('/myevents/:idx', auth, async (req, res) => {
   const idx = parseInt(req.params.idx);
-  const user = await User.findById(req.user.id);
+  const user = await User.findById(req.user.id).select('myEvents');
   if (user.myEvents[idx]) {
-    // Only update provided fields
     Object.assign(user.myEvents[idx], req.body);
     await user.save();
     return res.json(user.myEvents);
@@ -224,11 +271,19 @@ router.put('/myevents/:idx', auth, async (req, res) => {
 });
 
 router.delete('/myevents/:idx', auth, async (req, res) => {
-  const idx = parseInt(req.params.idx);
-  const user = await User.findById(req.user.id);
-  if (user.myEvents[idx]) user.myEvents.splice(idx, 1);
-  await user.save();
-  res.json(user.myEvents);
+  try {
+    const idx = parseInt(req.params.idx);
+    // Use lean fetch just to get current myEvents, then atomic update
+    const user = await User.findById(req.user.id).select('myEvents').lean();
+    if (!user) return res.status(404).json({ msg: 'User not found' });
+    const updated = [...user.myEvents];
+    if (idx >= 0 && idx < updated.length) updated.splice(idx, 1);
+    // Single atomic update — no re-fetch needed
+    await User.findByIdAndUpdate(req.user.id, { $set: { myEvents: updated } });
+    res.json(updated);
+  } catch (err) {
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
 });
 
 // Notifications: get, create, mark as read
@@ -260,11 +315,16 @@ router.post('/notifications/read', auth, async (req, res) => {
 // Profile: update
 router.put('/profile', auth, async (req, res) => {
   const user = await User.findById(req.user.id);
-  if (req.body.name) user.name = req.body.name;
+  if (req.body.name)  user.name  = req.body.name;
   if (req.body.email) user.email = req.body.email;
   if (Object.prototype.hasOwnProperty.call(req.body, 'avatar')) {
     user.avatar = req.body.avatar;
   }
+  // Notification preferences
+  if (req.body.emailNotifications !== undefined) user.emailNotifications = req.body.emailNotifications;
+  if (req.body.eventReminders     !== undefined) user.eventReminders     = req.body.eventReminders;
+  if (req.body.weeklyDigest       !== undefined) user.weeklyDigest       = req.body.weeklyDigest;
+
   const profileUpdates = {};
   profileFields.forEach(field => {
     if (req.body[field] !== undefined) {
@@ -274,10 +334,13 @@ router.put('/profile', auth, async (req, res) => {
   user.profile = { ...user.profile, ...profileUpdates };
   await user.save();
   res.json({
-    name: user.name,
-    email: user.email,
-    avatar: user.avatar,
-    profile: user.profile,
+    name:               user.name,
+    email:              user.email,
+    avatar:             user.avatar,
+    emailNotifications: user.emailNotifications,
+    eventReminders:     user.eventReminders,
+    weeklyDigest:       user.weeklyDigest,
+    profile:            user.profile,
   });
 });
 

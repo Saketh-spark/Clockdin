@@ -2,7 +2,9 @@ const mongoose = require('mongoose');
 
 const reminderSchema = new mongoose.Schema({
   user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  event: { type: mongoose.Schema.Types.ObjectId, ref: 'Event', required: true },
+  // event is optional — personal MyEvents reminders don't create a public Event doc
+  event: { type: mongoose.Schema.Types.ObjectId, ref: 'Event', required: false, default: null },
+  title: { type: String, default: '' }, // used when event ref is null (personal events)
   email: { type: String, required: true },
   remindAt: { type: Date, required: true },
   sent: { type: Boolean, default: false }

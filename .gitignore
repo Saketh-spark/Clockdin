@@ -15,6 +15,7 @@ server/node_modules/
 client/.env
 client/.env.local
 client/.env.*.local
+client/.env.production
 server/.env
 server/.env.local
 server/.env.*.local

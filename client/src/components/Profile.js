@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { apiAxios } from '../utils/api';
 import '../Events.css';
+import { getBookmarkStorageKeys } from '../utils/bookmarkStorage';
 
 const glassCard = {
   background: 'rgba(255,255,255,0.75)',
@@ -29,23 +30,69 @@ const defaultProfile = {
   joined: '',
 };
 
+const PROFILE_CACHE_KEY = () => `clockdin_profile_cache_${localStorage.getItem('clockdin_token')?.slice(-8) || 'guest'}`;
+
+const getInitialProfile = () => {
+  try {
+    const cached = localStorage.getItem(PROFILE_CACHE_KEY());
+    if (cached) return JSON.parse(cached);
+  } catch (_) {}
+  return defaultProfile;
+};
+
 const Profile = () => {
   const [tab, setTab] = useState('profile');
   const [edit, setEdit] = useState(false);
-  const [profile, setProfile] = useState(defaultProfile);
-  const [form, setForm] = useState(defaultProfile);
+  const [profile, setProfile] = useState(getInitialProfile);
+  const [form, setForm] = useState(getInitialProfile);
   const avatarInputRef = useRef(null);
 
   // stats state
-  const [bookmarkedCount, setBookmarkedCount] = useState(0);
-  const [personalCount, setPersonalCount] = useState(0);
-  const [memberSinceDays, setMemberSinceDays] = useState('N/A');
+  const [bookmarkedCount, setBookmarkedCount] = useState(() => {
+    try {
+      const cached = localStorage.getItem(PROFILE_CACHE_KEY());
+      if (cached) {
+        const p = JSON.parse(cached);
+        return p._cachedBookmarkCount || 0;
+      }
+    } catch (_) {}
+    return 0;
+  });
+  const [personalCount, setPersonalCount] = useState(() => {
+    try {
+      const cached = localStorage.getItem(PROFILE_CACHE_KEY());
+      if (cached) {
+        const p = JSON.parse(cached);
+        return p._cachedPersonalCount || 0;
+      }
+    } catch (_) {}
+    return 0;
+  });
+  const [memberSinceDays, setMemberSinceDays] = useState(() => {
+    try {
+      const cached = localStorage.getItem(PROFILE_CACHE_KEY());
+      if (cached) {
+        const p = JSON.parse(cached);
+        return p._cachedMemberSince ?? 'N/A';
+      }
+    } catch (_) {}
+    return 'N/A';
+  });
 
-  // Fetch profile from backend on mount
+  const getLocalBookmarkCount = () => {
+    const { idsKey, dataKey } = getBookmarkStorageKeys();
+    const ids = JSON.parse(localStorage.getItem(idsKey) || '[]');
+    const items = JSON.parse(localStorage.getItem(dataKey) || '[]');
+    return Math.max(ids.length, items.length);
+  };
+
+  // Fetch profile from backend on mount — cache-first for instant load
   useEffect(() => {
     const fetchProfile = async () => {
+      // Show cached data immediately (already set in useState initializer)
+      // Now fetch fresh data silently in background
       try {
-  const token = localStorage.getItem('clockdin_token');
+        const token = localStorage.getItem('clockdin_token');
         const res = await apiAxios.get('/api/users/me', {
           headers: { 'x-auth-token': token }
         });
@@ -58,17 +105,12 @@ const Profile = () => {
             name: res.data.name,
             email: res.data.email,
           };
-          setProfile(mergedProfile);
-          setForm({ ...mergedProfile });
           // bookmarked count (server first, fallback to localStorage)
           const serverBookmarks = Array.isArray(res.data.bookmarks) ? res.data.bookmarks.length : 0;
-          const localBookmarkedIds = JSON.parse(localStorage.getItem('bookmarkedEvents') || '[]');
-          const localBookmarkedData = JSON.parse(localStorage.getItem('bookmarkedEventsData') || '[]');
-          const fallbackBookmarks = Math.max(localBookmarkedIds.length || 0, localBookmarkedData.length || 0);
-          setBookmarkedCount(serverBookmarks || fallbackBookmarks);
+          const fallbackBookmarks = getLocalBookmarkCount();
+          const bCount = serverBookmarks || fallbackBookmarks;
           // personal events count
           const myEventsCount = Array.isArray(res.data.myEvents) ? res.data.myEvents.length : 0;
-          setPersonalCount(myEventsCount);
           // member since -> prefer explicit joined/createdAt, otherwise derive from _id
           let createdAt = null;
           if (res.data.joined) createdAt = new Date(res.data.joined);
@@ -80,26 +122,60 @@ const Profile = () => {
               createdAt = new Date(ts);
             } catch (e) { createdAt = null; }
           }
+          let days = 'N/A';
           if (createdAt && !isNaN(createdAt.getTime())) {
-            const days = Math.floor((Date.now() - createdAt.getTime()) / (1000 * 60 * 60 * 24));
-            setMemberSinceDays(days);
-          } else {
-            setMemberSinceDays('N/A');
+            days = Math.floor((Date.now() - createdAt.getTime()) / (1000 * 60 * 60 * 24));
           }
+
+          setProfile(mergedProfile);
+          setForm({ ...mergedProfile });
+          setBookmarkedCount(bCount);
+          setPersonalCount(myEventsCount);
+          setMemberSinceDays(days);
+
+          // Persist to cache for next visit
+          try {
+            localStorage.setItem(PROFILE_CACHE_KEY(), JSON.stringify({
+              ...mergedProfile,
+              _cachedBookmarkCount: bCount,
+              _cachedPersonalCount: myEventsCount,
+              _cachedMemberSince: days,
+            }));
+          } catch (_) {}
         }
       } catch (err) {
-        setProfile(defaultProfile);
-        setForm(defaultProfile);
-      // keep counts in sync with local data if server fails
-      const localBookmarkedIds = JSON.parse(localStorage.getItem('bookmarkedEvents') || '[]');
-      const localBookmarkedData = JSON.parse(localStorage.getItem('bookmarkedEventsData') || '[]');
-      setBookmarkedCount(Math.max(localBookmarkedIds.length, localBookmarkedData.length));
-      setPersonalCount(0);
-      setMemberSinceDays('N/A');
+        // Keep showing cached data on error; only override if nothing cached
+        const cached = localStorage.getItem(PROFILE_CACHE_KEY());
+        if (!cached) {
+          setProfile(defaultProfile);
+          setForm(defaultProfile);
+          setBookmarkedCount(getLocalBookmarkCount());
+          setPersonalCount(0);
+          setMemberSinceDays('N/A');
+        }
       }
     };
     fetchProfile();
     // eslint-disable-next-line
+  }, []);
+
+  useEffect(() => {
+    const refresh = () => {
+      setBookmarkedCount(getLocalBookmarkCount());
+    };
+
+    const onStorage = (e) => {
+      if (!e.key || e.key.includes('bookmarkedEvents') || e.key === 'clockdin_user') {
+        refresh();
+      }
+    };
+
+    window.addEventListener('storage', onStorage);
+    window.addEventListener('bookmarks-changed', refresh);
+    return () => {
+      window.removeEventListener('storage', onStorage);
+      window.removeEventListener('bookmarks-changed', refresh);
+    };
   }, []);
   const [settings, setSettings] = useState({
     email: true,
@@ -139,6 +215,56 @@ const Profile = () => {
     }
   };
   const handleSettings = (key, value) => setSettings(s => ({...s, [key]: value ?? !s[key]}));
+
+  const buildExternalLink = (value) => {
+    if (!value) return '';
+    if (/^https?:\/\//i.test(value)) return value;
+    return `https://${value}`;
+  };
+
+  const renderSocialField = ({ name, label, icon }) => {
+    const rawValue = edit ? form[name] : profile[name];
+    const value = typeof rawValue === 'string' ? rawValue.trim() : '';
+    const hasValue = Boolean(value);
+
+    return (
+      <div className="col-md-6">
+        <label className="form-label"><i className={`bi ${icon} me-1`}></i>{label}</label>
+        {edit ? (
+          <input
+            className="form-control"
+            name={name}
+            value={form[name]}
+            onChange={handleChange}
+            disabled={!edit}
+          />
+        ) : hasValue ? (
+          <a
+            className="d-flex align-items-center justify-content-between px-3 py-2 border rounded text-decoration-none"
+            href={buildExternalLink(value)}
+            target="_blank"
+            rel="noreferrer"
+            style={{ fontWeight: 600, color: '#2563eb' }}
+          >
+            <span className="text-truncate" style={{ maxWidth: '80%' }}>{value}</span>
+            <i className="bi bi-box-arrow-up-right"></i>
+          </a>
+        ) : (
+          <button
+            type="button"
+            className="btn btn-outline-primary w-100 d-flex align-items-center justify-content-between"
+            style={{ borderRadius: '0.8rem', fontWeight: 600 }}
+            onClick={startEdit}
+          >
+            <span className="d-flex align-items-center gap-2">
+              <i className="bi bi-plus-circle"></i>Add your {label}
+            </span>
+            <i className="bi bi-arrow-right-short"></i>
+          </button>
+        )}
+      </div>
+    );
+  };
 
   // Stats (dynamic)
   const stats = [
@@ -244,22 +370,10 @@ const Profile = () => {
           </div>
           <h3 className="mb-3 mt-4" style={{fontWeight:800, fontSize:'1.3rem', color:'#22223b'}}><i className="bi bi-globe2 me-2 text-info"></i>Social Links</h3>
           <div className="row g-4 mb-4">
-            <div className="col-md-6">
-              <label className="form-label"><i className="bi bi-globe me-1"></i>Website</label>
-              <input className="form-control" name="website" value={edit ? form.website : profile.website} onChange={handleChange} disabled={!edit} placeholder="https://yourwebsite.com" />
-            </div>
-            <div className="col-md-6">
-              <label className="form-label"><i className="bi bi-github me-1"></i>GitHub</label>
-              <input className="form-control" name="github" value={edit ? form.github : profile.github} onChange={handleChange} disabled={!edit} placeholder="https://github.com/username" />
-            </div>
-            <div className="col-md-6">
-              <label className="form-label"><i className="bi bi-linkedin me-1"></i>LinkedIn</label>
-              <input className="form-control" name="linkedin" value={edit ? form.linkedin : profile.linkedin} onChange={handleChange} disabled={!edit} placeholder="https://linkedin.com/in/username" />
-            </div>
-            <div className="col-md-6">
-              <label className="form-label"><i className="bi bi-twitter me-1"></i>Twitter</label>
-              <input className="form-control" name="twitter" value={edit ? form.twitter : profile.twitter} onChange={handleChange} disabled={!edit} placeholder="https://twitter.com/username" />
-            </div>
+            {renderSocialField({ name: 'website', label: 'Website', icon: 'bi-globe' })}
+            {renderSocialField({ name: 'github', label: 'GitHub', icon: 'bi-github' })}
+            {renderSocialField({ name: 'linkedin', label: 'LinkedIn', icon: 'bi-linkedin' })}
+            {renderSocialField({ name: 'twitter', label: 'Twitter', icon: 'bi-twitter' })}
           </div>
           <div className="row g-4 mb-4">
             <div className="col-md-6">

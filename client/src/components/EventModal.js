@@ -42,15 +42,16 @@ const EventModal = ({ event, isOpen, onClose }) => {
               </div>
             )}
 
+
             {/* Basic Information */}
             <div className="row mb-4">
               <div className="col-md-6">
                 <div className="info-card">
                   <h6 className="info-title">📅 Event Date</h6>
                   <p className="info-content">
-                    {event.eventDate ? new Date(event.eventDate).toLocaleDateString(undefined, { 
-                      year: 'numeric', month: 'long', day: 'numeric' 
-                    }) : 'TBD'}
+                    {event.eventDate
+                      ? new Date(event.eventDate).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })
+                      : <span style={{color:'#94a3b8',fontStyle:'italic'}}>Date not announced yet</span>}
                   </p>
                 </div>
               </div>
@@ -58,27 +59,31 @@ const EventModal = ({ event, isOpen, onClose }) => {
                 <div className="info-card">
                   <h6 className="info-title">⏰ Application Deadline</h6>
                   <p className="info-content">
-                    {event.deadline ? new Date(event.deadline).toLocaleDateString(undefined, { 
-                      year: 'numeric', month: 'long', day: 'numeric' 
-                    }) : 'TBD'}
+                    {event.deadline
+                      ? new Date(event.deadline).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })
+                      : <span style={{color:'#94a3b8',fontStyle:'italic'}}>Check official website</span>}
                   </p>
                 </div>
               </div>
             </div>
 
             <div className="row mb-4">
-              <div className="col-md-6">
-                <div className="info-card">
-                  <h6 className="info-title">📍 Location</h6>
-                  <p className="info-content">{event.location}</p>
+              {event.location && (
+                <div className="col-md-6">
+                  <div className="info-card">
+                    <h6 className="info-title">📍 Location</h6>
+                    <p className="info-content">{event.location}</p>
+                  </div>
                 </div>
-              </div>
-              <div className="col-md-6">
-                <div className="info-card">
-                  <h6 className="info-title">💻 Mode</h6>
-                  <p className="info-content">{event.mode || 'TBD'}</p>
+              )}
+              {event.mode && (
+                <div className="col-md-6">
+                  <div className="info-card">
+                    <h6 className="info-title">💻 Mode</h6>
+                    <p className="info-content">{event.mode}</p>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
 
             {/* Description */}
@@ -87,7 +92,7 @@ const EventModal = ({ event, isOpen, onClose }) => {
               <p className="info-content">{event.detailedDescription || event.description}</p>
             </div>
 
-            {/* Detailed Information Grid */}
+            {/* Detailed Information Grid — only show cards with real data */}
             <div className="row">
               <div className="col-md-6 mb-3">
                 <div className="info-card">
@@ -95,83 +100,105 @@ const EventModal = ({ event, isOpen, onClose }) => {
                   <p className="info-content">{event.eligibility || 'Check official website for details'}</p>
                 </div>
               </div>
-              
-              <div className="col-md-6 mb-3">
-                <div className="info-card">
-                  <h6 className="info-title">👥 Team/Individual</h6>
-                  <p className="info-content">{event.teamOrIndividual || 'TBD'}</p>
+
+              {event.teamOrIndividual && (
+                <div className="col-md-6 mb-3">
+                  <div className="info-card">
+                    <h6 className="info-title">👥 Team / Individual</h6>
+                    <p className="info-content">{event.teamOrIndividual}</p>
+                  </div>
                 </div>
-              </div>
-              
-              <div className="col-md-6 mb-3">
-                <div className="info-card">
-                  <h6 className="info-title">⏱️ Duration</h6>
-                  <p className="info-content">{event.duration || 'TBD'}</p>
+              )}
+
+              {event.duration && !/^\s*(tbd|n\/a|unknown)\s*$/i.test(event.duration) && (
+                <div className="col-md-6 mb-3">
+                  <div className="info-card">
+                    <h6 className="info-title">⏱️ Duration</h6>
+                    <p className="info-content">{event.duration}</p>
+                  </div>
                 </div>
-              </div>
-              
-              <div className="col-md-6 mb-3">
-                <div className="info-card">
-                  <h6 className="info-title">💼 Workload</h6>
-                  <p className="info-content">{event.workload || 'TBD'}</p>
+              )}
+
+              {event.workload && !/^\s*(tbd|n\/a|unknown)\s*$/i.test(event.workload) && (
+                <div className="col-md-6 mb-3">
+                  <div className="info-card">
+                    <h6 className="info-title">💼 Workload</h6>
+                    <p className="info-content">{event.workload}</p>
+                  </div>
                 </div>
-              </div>
-              
-              <div className="col-md-6 mb-3">
-                <div className="info-card">
-                  <h6 className="info-title">🎁 Stipend & Perks</h6>
-                  <p className="info-content">{event.stipendPerks || 'Check official website for details'}</p>
+              )}
+
+              {event.stipendPerks && (
+                <div className="col-md-6 mb-3">
+                  <div className="info-card">
+                    <h6 className="info-title">🎁 Stipend &amp; Perks</h6>
+                    <p className="info-content">{event.stipendPerks}</p>
+                  </div>
                 </div>
-              </div>
-              
-              <div className="col-md-6 mb-3">
-                <div className="info-card">
-                  <h6 className="info-title">🏢 Organizer</h6>
-                  <p className="info-content">{event.organizerReputation || 'TBD'}</p>
+              )}
+
+              {event.organizerReputation && !/^\s*(tbd|n\/a|unknown)\s*$/i.test(event.organizerReputation) && (
+                <div className="col-md-6 mb-3">
+                  <div className="info-card">
+                    <h6 className="info-title">🏢 Organizer</h6>
+                    <p className="info-content">{event.organizerReputation}</p>
+                  </div>
                 </div>
-              </div>
-              
-              <div className="col-md-6 mb-3">
-                <div className="info-card">
-                  <h6 className="info-title">📚 Learning Opportunities</h6>
-                  <p className="info-content">{event.learningOpportunities || 'TBD'}</p>
+              )}
+
+              {event.learningOpportunities && !/^\s*(tbd|n\/a|unknown)\s*$/i.test(event.learningOpportunities) && (
+                <div className="col-md-6 mb-3">
+                  <div className="info-card">
+                    <h6 className="info-title">📚 Learning Opportunities</h6>
+                    <p className="info-content">{event.learningOpportunities}</p>
+                  </div>
                 </div>
-              </div>
-              
-              <div className="col-md-6 mb-3">
-                <div className="info-card">
-                  <h6 className="info-title">🎯 Future Scope</h6>
-                  <p className="info-content">{event.futureScope || 'TBD'}</p>
+              )}
+
+              {event.futureScope && !/^\s*(tbd|n\/a|unknown)\s*$/i.test(event.futureScope) && (
+                <div className="col-md-6 mb-3">
+                  <div className="info-card">
+                    <h6 className="info-title">🎯 Future Scope</h6>
+                    <p className="info-content">{event.futureScope}</p>
+                  </div>
                 </div>
-              </div>
-              
-              <div className="col-md-6 mb-3">
-                <div className="info-card">
-                  <h6 className="info-title">👥 Networking</h6>
-                  <p className="info-content">{event.networking || 'TBD'}</p>
+              )}
+
+              {event.networking && !/^\s*(tbd|n\/a|unknown)\s*$/i.test(event.networking) && (
+                <div className="col-md-6 mb-3">
+                  <div className="info-card">
+                    <h6 className="info-title">👥 Networking</h6>
+                    <p className="info-content">{event.networking}</p>
+                  </div>
                 </div>
-              </div>
-              
-              <div className="col-md-6 mb-3">
-                <div className="info-card">
-                  <h6 className="info-title">📊 Expected Applicants</h6>
-                  <p className="info-content">{event.applicants || 'TBD'}</p>
+              )}
+
+              {event.applicants && !/^\s*(tbd|n\/a|unknown)\s*$/i.test(String(event.applicants)) && (
+                <div className="col-md-6 mb-3">
+                  <div className="info-card">
+                    <h6 className="info-title">📊 Expected Applicants</h6>
+                    <p className="info-content">{event.applicants}</p>
+                  </div>
                 </div>
-              </div>
-              
-              <div className="col-md-6 mb-3">
-                <div className="info-card">
-                  <h6 className="info-title">👨‍🏫 Mentorship</h6>
-                  <p className="info-content">{event.mentorship || 'TBD'}</p>
+              )}
+
+              {event.mentorship && !/^\s*(tbd|n\/a|unknown)\s*$/i.test(event.mentorship) && (
+                <div className="col-md-6 mb-3">
+                  <div className="info-card">
+                    <h6 className="info-title">👨‍🏫 Mentorship</h6>
+                    <p className="info-content">{event.mentorship}</p>
+                  </div>
                 </div>
-              </div>
-              
-              <div className="col-md-6 mb-3">
-                <div className="info-card">
-                  <h6 className="info-title">💬 Past Reviews</h6>
-                  <p className="info-content review-text">{event.pastReviews || 'No reviews available yet'}</p>
+              )}
+
+              {event.pastReviews && (
+                <div className="col-md-6 mb-3">
+                  <div className="info-card">
+                    <h6 className="info-title">💬 Past Reviews</h6>
+                    <p className="info-content review-text">{event.pastReviews}</p>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
 
             {/* Tags */}
@@ -185,12 +212,12 @@ const EventModal = ({ event, isOpen, onClose }) => {
                 </div>
               </div>
             )}
-          </div>
-          
+          </div>{/* end modal-body */}
+
           <div className="modal-footer">
-            <button 
-              type="button" 
-              className="btn btn-secondary" 
+            <button
+              type="button"
+              className="btn btn-secondary"
               onClick={onClose}
             >
               Close
@@ -204,10 +231,12 @@ const EventModal = ({ event, isOpen, onClose }) => {
               Apply Now <i className="bi bi-box-arrow-up-right ms-1"></i>
             </a>
           </div>
-        </div>
-      </div>
+        </div>{/* end modal-content */}
+      </div>{/* end modal-dialog */}
     </div>
+
   );
 };
 
 export default EventModal;
+

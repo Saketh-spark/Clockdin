@@ -4,6 +4,8 @@ const notificationSubscriptionSchema = new mongoose.Schema({
   user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   event: { type: mongoose.Schema.Types.ObjectId, ref: 'Event', required: true },
   sent: { type: Boolean, default: false },
+  subscribed: { type: Boolean, default: true },
+  notificationSentAt: { type: Date },
   createdAt: { type: Date, default: Date.now },
 });
 
