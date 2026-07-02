@@ -79,14 +79,23 @@ async function checkDeadlineReminders() {
         { days: 0, flag: 'sentAtDay0'  },
       ];
 
-      for (const cp of checkpoints) {
-        // Only fire if we've reached this checkpoint AND haven't sent it yet
-        if (daysLeft <= cp.days && !sub[cp.flag]) {
-          const sent = await sendReminderAndNotification(user, event, cp.days, sendDeadlineReminderEmail, targetDate, usingEventDate);
-          if (sent) {
-            await NotifyMe.findByIdAndUpdate(sub._id, { $set: { [cp.flag]: true } });
-            emailsSent++;
+      // Find all checkpoints that are due and unsent
+      const dueCheckpoints = checkpoints.filter(cp => daysLeft <= cp.days && !sub[cp.flag]);
+
+      if (dueCheckpoints.length > 0) {
+        // checkpoints is sorted descending, so the last due checkpoint is the smallest/closest one
+        const currentCp = dueCheckpoints[dueCheckpoints.length - 1];
+        
+        // Pass the actual daysLeft instead of currentCp.days so the text reflects reality (e.g. 'in 5 days')
+        const sent = await sendReminderAndNotification(user, event, daysLeft, sendDeadlineReminderEmail, targetDate, usingEventDate);
+        if (sent) {
+          // Build update object to mark ALL due checkpoints as true so we don't spam retroactive reminders
+          const updateFlags = {};
+          for (const cp of dueCheckpoints) {
+            updateFlags[cp.flag] = true;
           }
+          await NotifyMe.findByIdAndUpdate(sub._id, { $set: updateFlags });
+          emailsSent++;
         }
       }
     }

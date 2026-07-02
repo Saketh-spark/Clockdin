@@ -267,14 +267,18 @@ function getDeadlineReminderHtml(user, event, daysLeft) {
       color: '#d97706', bgColor: '#fffbeb', borderColor: '#fde68a', emoji: '⚠️',
       urgencyText: usingEventDate ? 'Event in 3 days' : 'Closes in 3 days',
       subText: usingEventDate ? 'The event starts in 3 days. Start preparing!' : 'Make sure to apply before the deadline closes.'
-    },
-    7: {
-      color: '#6366f1', bgColor: '#eef2ff', borderColor: '#c7d2fe', emoji: '⏰',
-      urgencyText: usingEventDate ? 'Event in 7 days' : 'Closes in 7 days',
-      subText: usingEventDate ? 'You have one week until the event. Time to plan ahead!' : 'You have one week left. Start preparing your application!'
     }
   };
-  const cfg = urgencyMap[daysLeft] || urgencyMap[7];
+  
+  // Use exact match or dynamically build fallback for 7+ days (or intermediate days like 5)
+  let cfg = urgencyMap[daysLeft];
+  if (!cfg) {
+    cfg = {
+      color: '#6366f1', bgColor: '#eef2ff', borderColor: '#c7d2fe', emoji: '⏰',
+      urgencyText: usingEventDate ? `Event in ${daysLeft} days` : `Closes in ${daysLeft} days`,
+      subText: usingEventDate ? `You have ${daysLeft} days until the event. Time to plan ahead!` : `You have ${daysLeft} days left. Start preparing your application!`
+    };
+  }
 
   // Date label and formatted value
   const dateRowLabel = usingEventDate ? '📅 Event Date' : '⏰ Deadline';
