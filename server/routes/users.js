@@ -86,28 +86,25 @@ router.post('/bookmarks', auth, async (req, res) => {
 
   // Create a system notification when user bookmarks an event
   if (!alreadyBookmarked) {
-    setImmediate(async () => {
-      try {
-        const event = await Event.findById(eventId).select('title organization category').lean();
-        const eventTitle = event ? event.title : 'an event';
-        const org        = event && event.organization ? event.organization : '';
-        const cat        = event && event.category    ? event.category    : '';
-        const msgParts   = [org, cat].filter(Boolean);
-        await Notification.create({
-          userId:  user._id,
-          eventId: eventId,
-          type:    'system',
-          title:   `Saved: ${eventTitle}`,
-          message: msgParts.length > 0 ? msgParts.join(' · ') : 'Event bookmarked',
-          isRead:  false,
-        });
-      } catch (err) {
-        console.error('[BG] Failed to create bookmark notification:', err.message);
-      }
-    });
+    try {
+      const event = await Event.findById(eventId).select('title organization category').lean();
+      const eventTitle = event ? event.title : 'an event';
+      const org        = event && event.organization ? event.organization : '';
+      const cat        = event && event.category    ? event.category    : '';
+      const msgParts   = [org, cat].filter(Boolean);
+      
+      await Notification.create({
+        userId:  user._id,
+        eventId: eventId,
+        type:    'system',
+        title:   `Saved: ${eventTitle}`,
+        message: msgParts.length > 0 ? msgParts.join(' · ') : 'Event bookmarked',
+        isRead:  false,
+      });
+    } catch (err) {
+      console.error('Failed to create bookmark notification:', err.message);
+    }
   }
-
-
   res.json(user.bookmarks);
 });
 router.delete('/bookmarks/:eventId', auth, async (req, res) => {

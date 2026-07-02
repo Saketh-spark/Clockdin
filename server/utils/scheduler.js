@@ -3,6 +3,7 @@ const cron = require('node-cron');
 const Reminder = require('../models/reminder.model');
 const Event = require('../models/event.model');
 const NotificationSubscription = require('../models/notificationSubscription.model');
+const Notification = require('../models/notification.model');
 const axios = require('axios');
 
 const timers = new Map();
@@ -52,6 +53,19 @@ async function sendReminder(reminder) {
       });
       rem.sent = true;
       await rem.save();
+      
+      // Also create an in-app notification exactly at this time!
+      if (remWithUser.user) {
+        await Notification.create({
+          userId:  remWithUser.user._id,
+          type:    'reminder',
+          title:   `${reminderTitle} — Reminder`,
+          message: `Your scheduled reminder for "${reminderTitle}" is now due.`,
+          isRead:    false,
+          sentEmail: true, // We already sent the email
+        });
+      }
+
       console.log('Scheduled personal reminder sent', { id: rem._id.toString(), messageId: info.messageId });
       if (timers.has(rem._id.toString())) {
         clearTimeout(timers.get(rem._id.toString()));

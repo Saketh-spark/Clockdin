@@ -162,79 +162,6 @@ async function sendReminderAndNotification(user, event, daysLeft, emailFn, targe
     return false;
   }
 }
-
-// ── 2. PERSONAL EVENT REMINDERS ──────────────────────────────
-// Runs every 5 minutes. Checks reminder fields inside user.myEvents.
-async function checkPersonalEventReminders() {
-  loadModels();
-  try {
-    const now = new Date();
-
-    const users = await User.find({
-      'myEvents.reminderSent': { $ne: true },
-      'myEvents.reminder':     { $exists: true, $ne: 'No reminder' },
-    }).select('myEvents email name').lean();
-
-    const reminderOffsets = {
-      'On time':           0,
-      '5 minutes before':  5 * 60 * 1000,
-      '10 minutes before': 10 * 60 * 1000,
-      '1 hour before':     60 * 60 * 1000,
-      '1 day before':      24 * 60 * 60 * 1000,
-    };
-
-    const timeLabel = {
-      'On time':           'right now',
-      '5 minutes before':  'in 5 minutes',
-      '10 minutes before': 'in 10 minutes',
-      '1 hour before':     'in 1 hour',
-      '1 day before':      'tomorrow',
-    };
-
-    for (const user of users) {
-      for (const ev of user.myEvents) {
-        if (!ev.reminder || ev.reminder === 'No reminder') continue;
-        if (ev.reminderSent) continue;
-
-        const offsetMs = reminderOffsets[ev.reminder];
-        if (offsetMs === undefined) continue;
-
-        let eventDT;
-        try {
-          const datePart = typeof ev.date === 'string' ? ev.date.split('T')[0] : ev.date;
-          const timePart = ev.time || '00:00';
-          eventDT = new Date(`${datePart}T${timePart}`);
-          if (isNaN(eventDT.getTime())) continue;
-        } catch { continue; }
-
-        const reminderTime = new Date(eventDT.getTime() - offsetMs);
-
-        if (now >= reminderTime && now < eventDT) {
-          await Notification.create({
-            userId:  user._id,
-            type:    'reminder',
-            title:   `${ev.title} — ${timeLabel[ev.reminder] || 'soon'}`,
-            message: ev.location
-              ? `${ev.time || ''} • ${ev.location}`
-              : ev.time || 'Check your personal events',
-            isRead:    false,
-            sentEmail: false,
-          });
-
-          await User.updateOne(
-            { _id: user._id, 'myEvents._id': ev._id },
-            { $set: { 'myEvents.$.reminderSent': true } }
-          );
-
-          console.log(`[NotifWorker] Personal reminder fired: "${ev.title}" for ${user.email}`);
-        }
-      }
-    }
-  } catch (err) {
-    console.error('[NotifWorker] checkPersonalEventReminders error:', err.message);
-  }
-}
-
 // ── Start cron jobs ───────────────────────────────────────────
 // Run deadline check every hour
 cron.schedule('0 * * * *', () => {
@@ -242,11 +169,6 @@ cron.schedule('0 * * * *', () => {
   checkDeadlineReminders();
 });
 
-// Run personal event reminder check every 5 minutes
-cron.schedule('*/5 * * * *', () => {
-  checkPersonalEventReminders();
-});
+console.log('[NotifWorker] Deadline reminder cron started.');
 
-console.log('[NotifWorker] Deadline + personal reminder crons started.');
-
-module.exports = { checkDeadlineReminders, checkPersonalEventReminders };
+module.exports = { checkDeadlineReminders };

@@ -209,6 +209,9 @@ router.delete('/admin/cleanup', async (req, res) => {
   }
 });
 
+const User = require('../models/user.model');
+const Notification = require('../models/notification.model');
+
 // ─────────────────────────────────────────────────────────────
 // POST /api/events/replace — Legacy: replace all global events
 // ─────────────────────────────────────────────────────────────
@@ -220,6 +223,30 @@ router.post('/replace', async (req, res) => {
     }
     await Event.deleteMany({});
     const inserted = await Event.insertMany(events);
+    
+    // Send an opportunities notification to all users asynchronously
+    if (inserted.length > 0) {
+      setImmediate(async () => {
+        try {
+          const users = await User.find().select('_id').lean();
+          const notifications = users.map(u => ({
+            userId: u._id,
+            type: 'opportunity',
+            title: 'New Events Available!',
+            message: `${inserted.length} new opportunities have been added.`,
+            isRead: false
+          }));
+          
+          if (notifications.length > 0) {
+            await Notification.insertMany(notifications, { ordered: false });
+            console.log(`[Events] Distributed ${notifications.length} new event notifications.`);
+          }
+        } catch (err) {
+          console.error('[Events] Failed to distribute notifications:', err.message);
+        }
+      });
+    }
+
     res.json({ replaced: inserted.length });
   } catch (err) {
     res.status(500).json({ msg: 'Server error', error: err.message });
