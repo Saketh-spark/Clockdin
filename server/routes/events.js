@@ -1,6 +1,7 @@
 const express = require('express');
 const Event = require('../models/event.model');
-const { runAllScrapers } = require('../scraper');
+// Scraper is completely disabled in production
+// const { runAllScrapers } = require('../scraper');
 const { deleteExpiredEvents } = require('../services/eventCleanup');
 const router = express.Router();
 
@@ -183,13 +184,13 @@ router.post('/admin/trigger-scrape', async (req, res) => {
   }
 
   try {
-    console.log('[Admin] Manual scrape triggered');
-    runAllScrapers().catch(err => console.error('[Admin] Scrape error:', err.message));
-    res.json({ success: true, message: 'Scraper started. Check server logs for results.' });
+    console.log('[Admin] Manual scrape triggered, but scraper is completely disabled in production.');
+    res.json({ success: true, message: 'Scraper is disabled. No events were scraped.' });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
 });
+
 
 // ─────────────────────────────────────────────────────────────
 // DELETE /api/events/admin/cleanup — Manually trigger cleanup
