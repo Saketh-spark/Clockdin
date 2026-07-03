@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const FALLBACK_API_BASE = 'https://clockdin000007-3.onrender.com';
+const FALLBACK_API_BASE = 'https://clockdin-api.onrender.com';
 const rawBase = (process.env.REACT_APP_API_BASE || FALLBACK_API_BASE).trim();
 const normalizedBase = rawBase.replace(/\/$/, '');
 const ensureLeadingSlash = path => path.startsWith('/') ? path : `/${path}`;

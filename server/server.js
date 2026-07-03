@@ -21,11 +21,13 @@ require('./services/notificationWorker');
 // ─────────────────────────────────────────────────────────────
 
 // ── CORS — allow both production Vercel URL and local dev ─────
-const CLIENT_URL         = process.env.CLIENT_URL || 'https://clockdin-one.vercel.app';
+const CLIENT_URL         = (process.env.CLIENT_URL         || 'https://clockdin-one.vercel.app').trim();
+const FALLBACK_CLIENT_URL = 'https://clockdin-one.vercel.app';
 const LOCAL_CLIENT_URL    = 'http://localhost:3000';
 
 const allowedOrigins = new Set([
   CLIENT_URL,
+  FALLBACK_CLIENT_URL,
   LOCAL_CLIENT_URL,
 ]);
 
@@ -34,7 +36,9 @@ const corsOptions = {
     // Allow requests with no origin (Render health checks, mobile apps)
     if (!origin) return callback(null, true);
     if (allowedOrigins.has(origin)) return callback(null, true);
-    callback(new Error(`Not allowed by CORS: ${origin}`));
+    // Also allow any *.vercel.app preview deploy
+    if (/\.vercel\.app$/.test(origin)) return callback(null, true);
+    callback(null, false);
   },
   credentials: true,
 };

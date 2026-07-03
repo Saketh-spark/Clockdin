@@ -203,7 +203,7 @@ async function sendDeadlineNotifications() {
         `Hi ${u.name || 'Participant'},\n\n` +
         `The event "${event.title}" has its deadline on ${softDeadline.toDateString()}.\n` +
         `Mode: ${mode}.\n` +
-        `View the event: ${event.applyLink || 'https://clockdin000007.vercel.app'}\n\n` +
+        `View the event: ${event.applyLink || 'https://clockdin-one.vercel.app'}\n\n` +
         `Best,\nClockdin Team`;
 
       for (const sub of subs) {
