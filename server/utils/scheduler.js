@@ -1,14 +1,26 @@
+/**
+ * scheduler.js
+ *
+ * CRON-BASED reminder system — survives Render restarts.
+ *
+ * Every minute, checks the database for Reminder documents
+ * where remindAt <= now and sent === false. Sends email + creates
+ * in-app notification for each. Works for ALL users automatically.
+ *
+ * The old setTimeout-based approach is completely removed because
+ * Render (free tier) restarts the server periodically, destroying
+ * all in-memory timers and causing emails to silently never send.
+ */
+
 const nodemailer = require('nodemailer');
-const cron = require('node-cron');
-const Reminder = require('../models/reminder.model');
-const Event = require('../models/event.model');
-const NotificationSubscription = require('../models/notificationSubscription.model');
+const cron       = require('node-cron');
+const Reminder   = require('../models/reminder.model');
+const Event      = require('../models/event.model');
 const Notification = require('../models/notification.model');
-const User = require('../models/user.model');
-const axios = require('axios');
+const User         = require('../models/user.model');
+const NotificationSubscription = require('../models/notificationSubscription.model');
 
-const timers = new Map();
-
+// ── Email transporter ─────────────────────────────────────────
 function makeTransporter() {
   return nodemailer.createTransport({
     service: 'gmail',
@@ -21,174 +33,155 @@ function makeTransporter() {
 
 const transporter = makeTransporter();
 
+// ── sendReminder: send one reminder email + in-app notification ─
 async function sendReminder(reminder) {
   try {
-    // Ensure populated event
-    const rem = await Reminder.findById(reminder._id).populate('event');
-    const to = rem.email;
+    // Always re-fetch from DB so we get the latest sent status
+    const rem = await Reminder.findById(reminder._id)
+      .populate('event')
+      .populate('user', 'name email emailNotifications');
+
+    if (!rem) return { success: false, error: 'Reminder not found' };
+    if (rem.sent) return { success: false, skipped: true, reason: 'already sent' };
+
+    const to    = rem.email;
     const event = rem.event;
 
-    // Skip if event has already passed
-    const eventDate = event?.eventDate || event?.deadline;
-    if (eventDate && new Date(eventDate) < new Date()) {
-      console.log(`Skipping reminder ${rem._id} — event "${event?.title}" has already passed.`);
-      rem.sent = true;
-      await rem.save();
-      return { success: false, skipped: true, reason: 'event already passed' };
-    }
-
-    // If event is null, it's a personal event
+    // ── Personal event reminder (no linked event doc) ─────────
     if (!event) {
-      const remWithUser = await Reminder.findById(reminder._id).populate('user', 'name');
-      const reminderTitle = remWithUser.title || 'Personal Event';
-      const userName = (remWithUser.user && remWithUser.user.name) ? remWithUser.user.name.split(' ')[0] : 'User';
-      const { getPersonalEventTemplate } = require('./emailTemplates');
-      const htmlContent = getPersonalEventTemplate(userName, reminderTitle, remWithUser.remindAt);
+      const reminderTitle = rem.title || 'Personal Event';
+      const userName = (rem.user && rem.user.name)
+        ? rem.user.name.split(' ')[0]
+        : 'User';
 
-      const info = await transporter.sendMail({
-        from: process.env.EMAIL_USER,
-        to,
-        subject: `Reminder: ${reminderTitle}`,
-        text: `Hi ${userName}! This is your personal reminder for: "${reminderTitle}".`,
-        html: htmlContent
-      });
-      rem.sent = true;
-      await rem.save();
-      
-      // Also create an in-app notification exactly at this time!
-      if (remWithUser.user) {
-        await Notification.create({
-          userId:  remWithUser.user._id,
-          type:    'reminder',
-          title:   `${reminderTitle} — Reminder`,
-          message: `Your scheduled reminder for "${reminderTitle}" is now due.`,
-          isRead:    false,
-          sentEmail: true, // We already sent the email
+      const { getPersonalEventTemplate } = require('./emailTemplates');
+      const htmlContent = getPersonalEventTemplate(userName, reminderTitle, rem.remindAt);
+
+      // Respect email preference
+      if (rem.user && rem.user.emailNotifications === false) {
+        console.log(`[Scheduler] Email skipped (preference off) for ${to}`);
+      } else {
+        const info = await transporter.sendMail({
+          from:    process.env.EMAIL_USER,
+          to,
+          subject: `Reminder: ${reminderTitle}`,
+          text:    `Hi ${userName}! This is your personal reminder for: "${reminderTitle}".`,
+          html:    htmlContent
+        });
+        console.log('[Scheduler] Personal reminder email sent', {
+          id: rem._id.toString(), to, messageId: info.messageId
         });
       }
 
-      console.log('Scheduled personal reminder sent', { id: rem._id.toString(), messageId: info.messageId });
-      if (timers.has(rem._id.toString())) {
-        clearTimeout(timers.get(rem._id.toString()));
-        timers.delete(rem._id.toString());
+      // Mark sent
+      rem.sent = true;
+      await rem.save();
+
+      // In-app notification
+      if (rem.user) {
+        try {
+          await Notification.create({
+            userId:  rem.user._id,
+            type:    'reminder',
+            title:   `${reminderTitle} — Reminder`,
+            message: `Your scheduled reminder for "${reminderTitle}" is now due.`,
+            isRead:  false,
+          });
+        } catch (notifErr) {
+          console.error('[Scheduler] Failed to create in-app notification:', notifErr.message);
+        }
       }
-      return { success: true, info };
+
+      return { success: true };
     }
 
-    const remWithUser = await Reminder.findById(reminder._id).populate('user', 'name');
-    const userName = (remWithUser.user && remWithUser.user.name) ? remWithUser.user.name.split(' ')[0] : 'User';
-    const { getPersonalEventTemplate } = require('./emailTemplates');
-    
-    const eventTitle = event?.title || 'Event';
-    const targetDate = event?.eventDate || event?.deadline;
-    const typeLabel = event?.category ? (event.category.charAt(0).toUpperCase() + event.category.slice(1) + ' Event') : 'Scheduled Event';
-    
-    const htmlContent = getPersonalEventTemplate(userName, eventTitle, targetDate, typeLabel);
+    // ── Linked-event reminder ─────────────────────────────────
+    const remWithUser = await Reminder.findById(rem._id).populate('user', 'name emailNotifications');
+    const userName = (remWithUser.user && remWithUser.user.name)
+      ? remWithUser.user.name.split(' ')[0]
+      : 'User';
 
+    const { getPersonalEventTemplate } = require('./emailTemplates');
+    const eventTitle = event.title || 'Event';
+    const targetDate = event.eventDate || event.deadline;
+    const typeLabel  = event.category
+      ? (event.category.charAt(0).toUpperCase() + event.category.slice(1) + ' Event')
+      : 'Scheduled Event';
+
+    const htmlContent = getPersonalEventTemplate(userName, eventTitle, targetDate, typeLabel);
     const subject = `Event Reminder: ${eventTitle}`;
-    const text = `Hi ${userName}! This is a reminder for the event "${eventTitle}" happening on ${targetDate ? new Date(targetDate).toLocaleDateString() : 'the scheduled date'}.`;
-    const info = await transporter.sendMail({ from: process.env.EMAIL_USER, to, subject, text, html: htmlContent });
+    const text    = `Hi ${userName}! Reminder for "${eventTitle}" on ${
+      targetDate ? new Date(targetDate).toLocaleDateString() : 'the scheduled date'
+    }.`;
+
+    if (remWithUser.user && remWithUser.user.emailNotifications === false) {
+      console.log(`[Scheduler] Email skipped (preference off) for ${to}`);
+    } else {
+      const info = await transporter.sendMail({
+        from: process.env.EMAIL_USER, to, subject, text, html: htmlContent
+      });
+      console.log('[Scheduler] Event reminder email sent', {
+        id: rem._id.toString(), to, messageId: info.messageId
+      });
+    }
+
     rem.sent = true;
     await rem.save();
-    console.log('Scheduled reminder sent', { id: rem._id.toString(), messageId: info.messageId });
-    // clear timer if present
-    if (timers.has(rem._id.toString())) {
-      clearTimeout(timers.get(rem._id.toString()));
-      timers.delete(rem._id.toString());
-    }
-    return { success: true, info };
+
+    return { success: true };
   } catch (err) {
-    console.error('Error in sendReminder:', err.message);
+    console.error('[Scheduler] Error in sendReminder:', err.message);
     return { success: false, error: err.message };
   }
 }
 
-function scheduleReminder(reminder) {
+// ── checkDueReminders: cron task, runs every minute ───────────
+let isRunning = false;
+async function checkDueReminders() {
+  if (isRunning) return; // prevent overlap
+  isRunning = true;
   try {
-    const id = reminder._id ? reminder._id.toString() : reminder.id;
-    // avoid scheduling already sent reminders
-    if (reminder.sent) return;
-    const remindAt = new Date(reminder.remindAt);
     const now = new Date();
-    const delay = remindAt.getTime() - now.getTime();
-    if (delay <= 0) {
-      // due now or in past => send immediately
-      sendReminder(reminder);
+
+    // Find all unsent reminders that are due (remindAt <= now)
+    const dueReminders = await Reminder.find({
+      sent:     false,
+      remindAt: { $lte: now }
+    });
+
+    if (dueReminders.length === 0) {
+      isRunning = false;
       return;
     }
-    // protect against too-large delays
-    const MAX_DELAY = 0x7fffffff; // ~24.8 days
-    const effectiveDelay = delay > MAX_DELAY ? MAX_DELAY : delay;
-    const timer = setTimeout(async () => {
-      await sendReminder(reminder);
-      // if the original delay exceeded MAX_DELAY, reschedule remaining time
-      if (delay > MAX_DELAY) {
-        // compute remaining time
-        const remaining = remindAt.getTime() - Date.now();
-        if (remaining > 0) scheduleReminder({ ...reminder, remindAt });
-      }
-    }, effectiveDelay);
-    timers.set(id, timer);
-    console.log('Reminder scheduled', { id, remindAt });
+
+    console.log(`[Scheduler] ${dueReminders.length} due reminder(s) found — processing...`);
+
+    for (const rem of dueReminders) {
+      await sendReminder(rem);
+    }
+
+    console.log(`[Scheduler] Done processing ${dueReminders.length} reminder(s).`);
   } catch (err) {
-    console.error('Error scheduling reminder:', err.message);
+    console.error('[Scheduler] checkDueReminders error:', err.message);
+  } finally {
+    isRunning = false;
   }
 }
 
+// ── rescheduleAll: called on server startup ───────────────────
+// No-op now (cron does the work), kept for backward compatibility
 async function rescheduleAll() {
-  try {
-    const now = new Date();
-    const ONE_HOUR_AGO = new Date(now.getTime() - 60 * 60 * 1000);
-
-    // Auto-expire stale reminders (overdue by more than 1 hour) instead of firing them
-    const expired = await Reminder.updateMany(
-      { sent: false, remindAt: { $lt: ONE_HOUR_AGO } },
-      { $set: { sent: true } }
-    );
-    if (expired.modifiedCount > 0) {
-      console.log(`rescheduleAll: expired ${expired.modifiedCount} stale reminder(s).`);
-    }
-
-    // Only schedule reminders that are still in the future (or due within the last hour)
-    const reminders = await Reminder.find({
-      sent: false,
-      remindAt: { $exists: true, $gte: ONE_HOUR_AGO }
-    }).populate('event');
-
-    let scheduled = 0;
-    for (const r of reminders) {
-      // Also skip if the event itself has already passed
-      const eventDate = r.event?.eventDate || r.event?.deadline;
-      if (eventDate && new Date(eventDate) < now) {
-        r.sent = true;
-        await r.save();
-        console.log(`rescheduleAll: skipped reminder for past event "${r.event?.title}".`);
-        continue;
-      }
-      scheduleReminder(r);
-      scheduled++;
-    }
-    console.log(`Rescheduled ${scheduled} reminder(s).`);
-  } catch (err) {
-    console.error('Error rescheduling reminders:', err.message);
-  }
+  console.log('[Scheduler] rescheduleAll: cron-based polling is active — no timers needed.');
 }
 
-async function notifyBookmarkedEvents() {
-  try {
-    const response = await axios.post('http://localhost:3000/api/reminders/bookmark-notifications');
-    console.log('Bookmarked events notification job completed:', response.data);
-  } catch (err) {
-    console.error('Error in notifyBookmarkedEvents:', err.message);
-  }
+// Kept for backward compatibility with routes/users.js
+function scheduleReminder(_reminder) {
+  // Nothing to do — the cron job will pick it up within 1 minute
+  console.log('[Scheduler] scheduleReminder called — cron will deliver within 1 minute.');
 }
 
-function scheduleBookmarkedNotifications() {
-  const ONE_DAY = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
-  setInterval(notifyBookmarkedEvents, ONE_DAY);
-  console.log('Scheduled daily job for bookmarked events notifications');
-}
-
+// ── OLD deadline-based NotificationSubscription system ────────
+// Kept for backward compatibility (still used by some routes)
 async function sendDeadlineNotifications() {
   const now = new Date();
   try {
@@ -197,26 +190,21 @@ async function sendDeadlineNotifications() {
       status: 'published',
       notificationWindow: '2_days',
     });
-    console.log(
-      `[${now.toISOString()}] Deadline cron started - found ${events.length} event(s) (now - ${new Date(now.getTime() + 48 * 60 * 60 * 1000).toISOString()})`
-    );
 
     for (const event of events) {
       const subs = await NotificationSubscription.find({ event: event._id, sent: false, subscribed: true })
         .populate({ path: 'user', select: 'name email' });
       if (!subs.length) continue;
 
-      const subject = `Reminder: ${event.title} ends in 2 days`;
+      const subject     = `Reminder: ${event.title} ends in 2 days`;
       const softDeadline = new Date(event.deadline);
-      const mode = event.mode || event.type || 'Online';
-      const bodyTemplate = user =>
-        `Hi ${user.name || 'Participant'},\n\n` +
+      const mode        = event.mode || event.type || 'Online';
+      const bodyTemplate = u =>
+        `Hi ${u.name || 'Participant'},\n\n` +
         `The event "${event.title}" has its deadline on ${softDeadline.toDateString()}.\n` +
         `Mode: ${mode}.\n` +
-        `View the event: ${event.applyLink || 'https://clockdin000007.vercel.app'},\n\n` +
+        `View the event: ${event.applyLink || 'https://clockdin000007.vercel.app'}\n\n` +
         `Best,\nClockdin Team`;
-
-      console.log(`Dispatching deadline notifications for event: ${event.title} to ${subs.length} subscriber(s)`);
 
       for (const sub of subs) {
         const user = sub.user;
@@ -224,21 +212,20 @@ async function sendDeadlineNotifications() {
         try {
           await transporter.sendMail({
             from: process.env.EMAIL_USER,
-            to: user.email,
+            to:   user.email,
             subject,
             text: bodyTemplate(user),
           });
           sub.sent = true;
           sub.notificationSentAt = new Date();
           await sub.save();
-          console.log('Notification sent', { event: event.title, user: user.email, subId: sub._id.toString() });
         } catch (err) {
-          console.error('Error sending deadline notification', { error: err.message, event: event.title, user: user.email });
+          console.error('[Scheduler] Error sending deadline notification:', err.message);
         }
       }
     }
   } catch (err) {
-    console.error('Error while sending deadline notifications:', err.message);
+    console.error('[Scheduler] sendDeadlineNotifications error:', err.message);
   }
 }
 
@@ -246,17 +233,33 @@ function scheduleDeadlineNotifications() {
   cron.schedule('*/1 * * * *', async () => {
     await sendDeadlineNotifications();
   });
-  console.log('Scheduled cron job for deadline-based notifications (every minute)');
+  console.log('[Scheduler] Legacy deadline notification cron started (every minute).');
 }
 
-// Call this function to start the scheduler
-scheduleBookmarkedNotifications();
+function scheduleBookmarkedNotifications() {
+  // No-op — bookmarked notifications are handled synchronously in routes/users.js
+  console.log('[Scheduler] Bookmarked notifications handled synchronously.');
+}
+
+async function notifyBookmarkedEvents() {
+  // No-op — kept for backward compatibility
+}
+
+// ── START THE CRON JOBS ───────────────────────────────────────
+// Every minute: check DB for due reminders and send emails
+cron.schedule('* * * * *', async () => {
+  await checkDueReminders();
+});
+console.log('[Scheduler] Personal reminder cron started — polling every minute.');
+
 scheduleDeadlineNotifications();
 
+// ─────────────────────────────────────────────────────────────
 module.exports = {
   sendReminder,
   scheduleReminder,
   rescheduleAll,
+  checkDueReminders,
   notifyBookmarkedEvents,
   scheduleBookmarkedNotifications,
   sendDeadlineNotifications,
