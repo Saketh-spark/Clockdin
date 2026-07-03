@@ -224,13 +224,8 @@ router.post('/replace', async (req, res) => {
     await Event.deleteMany({});
     const inserted = await Event.insertMany(events);
     
-    const { distributeNewEventsNotification } = require('../utils/notifyNewEvents');
     // Send an opportunities notification to all users asynchronously
-    if (inserted.length > 0) {
-      setImmediate(() => {
-        distributeNewEventsNotification(inserted.length);
-      });
-    }
+    // (Moved to Mongoose post-insertMany hook in event.model.js)
 
     res.json({ replaced: inserted.length });
   } catch (err) {

@@ -85,4 +85,62 @@ eventSchema.index({ category: 1 });
 eventSchema.index({ createdAt: -1 });
 eventSchema.index({ title: 1, organization: 1 }); // for duplicate check
 
+eventSchema.pre('save', function(next) {
+  this.wasNew = this.isNew;
+  next();
+});
+
+eventSchema.post('save', async function(doc) {
+  if (doc.wasNew) {
+    const User = mongoose.model('User');
+    const Notification = mongoose.model('Notification');
+    
+    try {
+      const users = await User.find().select('_id').lean();
+      const notifications = users.map(u => ({
+        userId: u._id,
+        type: 'opportunity',
+        title: 'New Event Added!',
+        message: `A new opportunity "${doc.title}" has been added to the platform.`,
+        isRead: false
+      }));
+      
+      if (notifications.length > 0) {
+        await Notification.insertMany(notifications, { ordered: false });
+      }
+    } catch (err) {
+      console.error('Failed to send new event notification:', err);
+    }
+  }
+});
+
+eventSchema.post('insertMany', async function(docs) {
+  if (!docs || docs.length === 0) return;
+  const User = mongoose.model('User');
+  const Notification = mongoose.model('Notification');
+  
+  try {
+    const users = await User.find().select('_id').lean();
+    let notifications = [];
+    
+    for (const doc of docs) {
+      users.forEach(u => {
+        notifications.push({
+          userId: u._id,
+          type: 'opportunity',
+          title: 'New Event Added!',
+          message: `A new opportunity "${doc.title}" has been added to the platform.`,
+          isRead: false
+        });
+      });
+    }
+    
+    if (notifications.length > 0) {
+      await Notification.insertMany(notifications, { ordered: false });
+    }
+  } catch (err) {
+    console.error('Failed to send bulk new event notifications:', err);
+  }
+});
+
 module.exports = mongoose.model('Event', eventSchema);
