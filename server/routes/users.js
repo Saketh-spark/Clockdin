@@ -115,6 +115,13 @@ router.delete('/bookmarks/:eventId', auth, async (req, res) => {
   res.json(user.bookmarks);
 });
 
+router.delete('/bookmarks', auth, async (req, res) => {
+  const user = await User.findById(req.user.id);
+  user.bookmarks = [];
+  await user.save();
+  res.json(user.bookmarks);
+});
+
 // Notifications subscribe/unsubscribe
 router.get('/notifications/subscriptions', auth, async (req, res) => {
   const subs = await NotificationSubscription.find({ user: req.user.id }).select('event sent');

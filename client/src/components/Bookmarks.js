@@ -288,7 +288,7 @@ const Bookmarks = () => {
   ]);
 
   // ── Unbookmark ────────────────────────────────────────────────
-  const handleUnbookmarkFromObj = (eventObj) => {
+  const handleUnbookmarkFromObj = async (eventObj) => {
     const id = eventObj._id || eventObj.id || eventObj.title;
     const updated = bookmarks.filter(ev => (ev._id || ev.id || ev.title) !== id);
     setBookmarks(updated);
@@ -297,9 +297,20 @@ const Bookmarks = () => {
     const ids = JSON.parse(localStorage.getItem(idsKey) || '[]').filter(i => i !== id);
     localStorage.setItem(idsKey, JSON.stringify(ids));
     window.dispatchEvent(new Event('bookmarks-changed'));
+
+    // Sync to backend
+    const token = localStorage.getItem('clockdin_token');
+    const realId = eventObj._id || eventObj.id;
+    if (token && realId) {
+      try {
+        await apiFetch(`/api/users/bookmarks/${realId}`, { method: 'DELETE', headers: { 'x-auth-token': token } });
+      } catch (err) {
+        console.error('Failed to unbookmark on server', err);
+      }
+    }
   };
 
-  const handleClearAll = () => {
+  const handleClearAll = async () => {
     if (!bookmarks.length) return;
     if (!window.confirm('Clear all bookmarks? This cannot be undone.')) return;
     setBookmarks([]);
@@ -307,6 +318,16 @@ const Bookmarks = () => {
     localStorage.removeItem(dataKey);
     localStorage.removeItem(idsKey);
     window.dispatchEvent(new Event('bookmarks-changed'));
+
+    // Sync to backend
+    const token = localStorage.getItem('clockdin_token');
+    if (token) {
+      try {
+        await apiFetch('/api/users/bookmarks', { method: 'DELETE', headers: { 'x-auth-token': token } });
+      } catch (err) {
+        console.error('Failed to clear bookmarks on server', err);
+      }
+    }
   };
 
   const handleUnarchive = (eventObj) => {
