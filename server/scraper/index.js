@@ -52,6 +52,12 @@ async function runAllScrapers() {
     errors: summary.totalErrors,
   }, '───');
 
+  // Trigger notification if any new events were found
+  if (summary.totalAdded > 0) {
+    const { distributeNewEventsNotification } = require('../utils/notifyNewEvents');
+    distributeNewEventsNotification(summary.totalAdded);
+  }
+
   return summary;
 }
 
