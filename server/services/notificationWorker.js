@@ -72,24 +72,29 @@ async function checkDeadlineReminders() {
       const daysLeft = Math.ceil(msLeft / (1000 * 60 * 60 * 24));
 
       // ── Check each checkpoint ───────────────────────────────
+      // Each checkpoint fires within its own window so we don't double-send:
+      //   0d window: daysLeft === 0
+      //   1d window: daysLeft === 1
+      //   3d window: daysLeft is 2 or 3
+      //   7d window: daysLeft is 4, 5, 6, or 7
       const checkpoints = [
-        { days: 7, flag: 'sentAt7Days' },
-        { days: 3, flag: 'sentAt3Days' },
-        { days: 1, flag: 'sentAt1Day'  },
-        { days: 0, flag: 'sentAtDay0'  },
+        { days: 7, flag: 'sentAt7Days', minDays: 4, maxDays: 7 },
+        { days: 3, flag: 'sentAt3Days', minDays: 2, maxDays: 3 },
+        { days: 1, flag: 'sentAt1Day',  minDays: 1, maxDays: 1 },
+        { days: 0, flag: 'sentAtDay0',  minDays: 0, maxDays: 0 },
       ];
 
       // Find all checkpoints that are due and unsent
-      const dueCheckpoints = checkpoints.filter(cp => daysLeft <= cp.days && !sub[cp.flag]);
+      const dueCheckpoints = checkpoints.filter(cp =>
+        daysLeft >= cp.minDays && daysLeft <= cp.maxDays && !sub[cp.flag]
+      );
 
       if (dueCheckpoints.length > 0) {
-        // checkpoints is sorted descending, so the last due checkpoint is the smallest/closest one
         const currentCp = dueCheckpoints[dueCheckpoints.length - 1];
         
-        // Pass the actual daysLeft instead of currentCp.days so the text reflects reality (e.g. 'in 5 days')
+        // Pass the actual daysLeft so the email text reflects reality
         const sent = await sendReminderAndNotification(user, event, daysLeft, sendDeadlineReminderEmail, targetDate, usingEventDate);
         if (sent) {
-          // Build update object to mark ALL due checkpoints as true so we don't spam retroactive reminders
           const updateFlags = {};
           for (const cp of dueCheckpoints) {
             updateFlags[cp.flag] = true;

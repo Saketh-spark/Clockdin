@@ -37,6 +37,10 @@ router.post('/backfill', auth, async (req, res) => {
     let created = 0;
 
     // ── 1. DEADLINE notifications from "Notify Me" subscriptions ─
+    // Only create at the defined checkpoints: 7, 3, 1, or 0 days left.
+    // Days in between (e.g. 5 days left) should NOT create a notification.
+    const CHECKPOINTS = [7, 3, 1, 0];
+
     const subs = await NotificationSubscription
       .find({ user: userId, subscribed: true })
       .populate('event')
@@ -44,31 +48,33 @@ router.post('/backfill', auth, async (req, res) => {
 
     for (const sub of subs) {
       const event = sub.event;
-      if (!event || !event.deadline) continue;
+      if (!event) continue;
 
-      const deadline = new Date(event.deadline);
-      const daysLeft = Math.ceil((deadline - now) / 86_400_000);
+      // Use deadline if available, otherwise fall back to eventDate
+      const targetDate = event.deadline || event.eventDate;
+      if (!targetDate) continue;
 
-      let title, message;
-      if (daysLeft < 0) {
-        title   = `${event.title} deadline has passed`;
-        message = `The deadline was ${deadline.toLocaleDateString('en-IN')}. Check for future opportunities.`;
-      } else if (daysLeft === 0) {
-        title   = `${event.title} closes TODAY`;
-        message = "Don't miss it — deadline is today. Apply now!";
-      } else if (daysLeft === 1) {
-        title   = `${event.title} closes TOMORROW`;
-        message = 'Last chance — deadline is tomorrow.';
-      } else if (daysLeft <= 3) {
-        title   = `${event.title} — only ${daysLeft} days left`;
-        message = `Application deadline: ${deadline.toLocaleDateString('en-IN')}`;
-      } else {
-        title   = `${event.title} deadline in ${daysLeft} days`;
-        message = `Application deadline: ${deadline.toLocaleDateString('en-IN')}`;
-      }
+      const target = new Date(targetDate);
+      const daysLeft = Math.ceil((target - now) / 86_400_000);
 
-      // Dedup: only one deadline notification per event per user
-      const exists = await Notification.findOne({ userId, eventId: event._id, type: 'deadline' });
+      // Only fire at valid checkpoints (7, 3, 1, 0)
+      if (!CHECKPOINTS.includes(daysLeft) && daysLeft > 0) continue;
+      // If already past, skip entirely (don't create "passed" notifications here)
+      if (daysLeft < 0) continue;
+
+      const usingEventDate = !event.deadline && !!event.eventDate;
+      const dateLabel = usingEventDate ? 'Event Date' : 'Deadline';
+      const dateStr = target.toLocaleDateString('en-IN');
+
+      let title;
+      if (daysLeft === 0)      title = `${event.title} is TODAY!`;
+      else if (daysLeft === 1) title = `${event.title} is TOMORROW`;
+      else                     title = `${event.title} in ${daysLeft} days`;
+
+      const message = `${dateLabel}: ${dateStr}`;
+
+      // Dedup: skip if this exact title already exists for this user/event
+      const exists = await Notification.findOne({ userId, eventId: event._id, type: 'deadline', title });
       if (exists) continue;
 
       await Notification.create({
@@ -112,64 +118,10 @@ router.post('/backfill', auth, async (req, res) => {
       created++;
     }
 
-    // ── 3. REMINDER notifications from personal events ─────────
-    const myEvents = user.myEvents || [];
-    const reminderOffsets = {
-      'On time':           0,
-      '5 minutes before':  5,
-      '10 minutes before': 10,
-      '1 hour before':     60,
-      '1 day before':      1440,
-    };
-    const timeLabels = {
-      'On time':           'right now',
-      '5 minutes before':  'in 5 minutes',
-      '10 minutes before': 'in 10 minutes',
-      '1 hour before':     'in 1 hour',
-      '1 day before':      'tomorrow',
-    };
-
-    for (const ev of myEvents) {
-      if (!ev.reminder || ev.reminder === 'No reminder') continue;
-
-      let eventDT;
-      try {
-        const datePart = ev.date
-          ? (typeof ev.date === 'string'
-              ? ev.date.split('T')[0]
-              : new Date(ev.date).toISOString().split('T')[0])
-          : null;
-        if (!datePart) continue;
-        eventDT = new Date(`${datePart}T${ev.time || '00:00'}`);
-        if (isNaN(eventDT.getTime())) continue;
-      } catch { continue; }
-
-      const minutesBefore = reminderOffsets[ev.reminder];
-      if (minutesBefore === undefined) continue;
-
-      const reminderTime = new Date(eventDT.getTime() - minutesBefore * 60_000);
-      // Only create if reminder fires in the future or within last 24h
-      if (reminderTime < new Date(now - 24 * 3_600_000)) continue;
-
-      // Dedup by event title
-      const exists = await Notification.findOne({
-        userId,
-        type:  'reminder',
-        title: { $regex: `^${ev.title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, $options: 'i' },
-      });
-      if (exists) continue;
-
-      await Notification.create({
-        userId,
-        type:    'reminder',
-        title:   `${ev.title} — ${timeLabels[ev.reminder] || 'soon'}`,
-        message: ev.location
-          ? `${ev.time || ''} • ${ev.location}`
-          : ev.time || 'Check your personal events',
-        isRead: false,
-      });
-      created++;
-    }
+    // ── 3. PERSONAL REMINDERS ─────────────────────────────────
+    // Personal event reminder notifications are sent ONLY by the cron scheduler
+    // (scheduler.js) at the exact reminder time. We do NOT create them here
+    // on page load, as that would show reminders immediately when events are created.
 
     return res.json({ success: true, created });
   } catch (err) {
