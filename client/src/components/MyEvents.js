@@ -183,6 +183,14 @@ const MyEvents = () => {
 
     try {
       const token = localStorage.getItem('clockdin_token');
+
+      // Build a UTC ISO string so the server never needs to guess timezone
+      let eventUtcISO = null;
+      if (eventDate && form.time) {
+        const localDt = new Date(`${eventDate}T${form.time}`);
+        if (!isNaN(localDt.getTime())) eventUtcISO = localDt.toISOString();
+      }
+
       const res = await apiAxios.post(
         '/api/users/myevents',
         {
@@ -193,7 +201,7 @@ const MyEvents = () => {
           location: form.location.trim(),
           category: form.category,
           reminder: form.reminder,
-          timezoneOffset: new Date().getTimezoneOffset(),
+          eventUtcISO,          // ← UTC ISO string for precise reminder scheduling
         },
         { headers: { 'x-auth-token': token } }
       );

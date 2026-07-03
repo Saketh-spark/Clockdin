@@ -152,20 +152,19 @@ router.delete('/notifications/subscribe/:eventId', auth, async (req, res) => {
 // My Events: add, get, delete
 router.post('/myevents', auth, async (req, res) => {
   try {
-    const { title, description, date, time, location, category, reminder, timezoneOffset } = req.body;
+    const { title, description, date, time, location, category, reminder, eventUtcISO } = req.body;
 
-    const offsetMinutes = typeof timezoneOffset === 'number' ? timezoneOffset : 0;
+    // Use the UTC ISO string sent by the client (precise, timezone-correct).
+    // Fall back to naive date+time parse only if eventUtcISO is absent.
     let eventDateTime = null;
-    if (date) {
+    if (eventUtcISO) {
+      const parsed = new Date(eventUtcISO);
+      if (!isNaN(parsed.getTime())) eventDateTime = parsed;
+    }
+    if (!eventDateTime && date) {
       const normalizedTime = time || '00:00';
       const parsed = new Date(`${date}T${normalizedTime}`);
-      if (!isNaN(parsed.getTime())) {
-        eventDateTime = parsed;
-      } else {
-        const fallbackDate = new Date(date);
-        if (!isNaN(fallbackDate.getTime())) eventDateTime = fallbackDate;
-      }
-      if (eventDateTime) eventDateTime.setMinutes(eventDateTime.getMinutes() + offsetMinutes);
+      if (!isNaN(parsed.getTime())) eventDateTime = parsed;
     }
 
     // Fetch just the user's myEvents (fast, lean)
@@ -186,6 +185,7 @@ router.post('/myevents', auth, async (req, res) => {
           'On time': 0,
           '5 minutes before': 5 * 60 * 1000,
           '10 minutes before': 10 * 60 * 1000,
+          '30 minutes before': 30 * 60 * 1000,
           '1 hour before': 60 * 60 * 1000,
           '1 day before': 24 * 60 * 60 * 1000,
         };
