@@ -8,7 +8,7 @@ const path = require('path');
 require('dotenv').config();
 
 const Reminder = require('./models/reminder.model');
-const { rescheduleAll, checkDueReminders } = require('./utils/scheduler');
+const { rescheduleAll } = require('./utils/scheduler');
 const reminders = require('./routes/reminders');
 
 // ── Automated services ────────────────────────────────────────
@@ -21,13 +21,11 @@ require('./services/notificationWorker');
 // ─────────────────────────────────────────────────────────────
 
 // ── CORS — allow both production Vercel URL and local dev ─────
-const CLIENT_URL         = (process.env.CLIENT_URL         || 'https://clockdin000007.vercel.app').trim();
-const FALLBACK_CLIENT_URL = 'https://clockdin000007.vercel.app';
+const CLIENT_URL         = process.env.CLIENT_URL || 'https://clockdin-one.vercel.app';
 const LOCAL_CLIENT_URL    = 'http://localhost:3000';
 
 const allowedOrigins = new Set([
   CLIENT_URL,
-  FALLBACK_CLIENT_URL,
   LOCAL_CLIENT_URL,
 ]);
 
@@ -36,9 +34,7 @@ const corsOptions = {
     // Allow requests with no origin (Render health checks, mobile apps)
     if (!origin) return callback(null, true);
     if (allowedOrigins.has(origin)) return callback(null, true);
-    // Also allow any *.vercel.app preview deploy
-    if (/\.vercel\.app$/.test(origin)) return callback(null, true);
-    callback(null, false);
+    callback(new Error(`Not allowed by CORS: ${origin}`));
   },
   credentials: true,
 };
@@ -46,23 +42,6 @@ const corsOptions = {
 const app = express();
 app.use(cors(corsOptions));
 app.use(express.json({ limit: '5mb' }));
-
-// ── Traffic-Driven Cron for Serverless/Sleepy environments ──
-// Because Render (free tier) aggressively sleeps the CPU, native timers (like setInterval or node-cron)
-// often fail to fire on time. But Render wakes up instantly to serve HTTP requests.
-// This middleware guarantees that our reminder check runs every 60 seconds 
-// as long as the user is actively using the app.
-let lastReminderCheck = 0;
-app.use((req, res, next) => {
-  const now = Date.now();
-  if (now - lastReminderCheck > 60000) {
-    lastReminderCheck = now;
-    setImmediate(() => {
-      if (checkDueReminders) checkDueReminders().catch(err => console.error('[TrafficCron]', err));
-    });
-  }
-  next();
-});
 
 // ── MongoDB connection ────────────────────────────────────────
 mongoose.connect(process.env.MONGO_URI)
