@@ -8,7 +8,7 @@ const path = require('path');
 require('dotenv').config();
 
 const Reminder = require('./models/reminder.model');
-const { rescheduleAll } = require('./utils/scheduler');
+const { rescheduleAll, checkDueReminders } = require('./utils/scheduler');
 const reminders = require('./routes/reminders');
 
 // ── Automated services ────────────────────────────────────────
@@ -46,6 +46,23 @@ const corsOptions = {
 const app = express();
 app.use(cors(corsOptions));
 app.use(express.json({ limit: '5mb' }));
+
+// ── Traffic-Driven Cron for Serverless/Sleepy environments ──
+// Because Render (free tier) aggressively sleeps the CPU, native timers (like setInterval or node-cron)
+// often fail to fire on time. But Render wakes up instantly to serve HTTP requests.
+// This middleware guarantees that our reminder check runs every 60 seconds 
+// as long as the user is actively using the app.
+let lastReminderCheck = 0;
+app.use((req, res, next) => {
+  const now = Date.now();
+  if (now - lastReminderCheck > 60000) {
+    lastReminderCheck = now;
+    setImmediate(() => {
+      if (checkDueReminders) checkDueReminders().catch(err => console.error('[TrafficCron]', err));
+    });
+  }
+  next();
+});
 
 // ── MongoDB connection ────────────────────────────────────────
 mongoose.connect(process.env.MONGO_URI)
