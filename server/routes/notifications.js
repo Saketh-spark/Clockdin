@@ -73,9 +73,23 @@ router.post('/backfill', auth, async (req, res) => {
 
       const message = `${dateLabel}: ${dateStr}`;
 
-      // Dedup: skip if this exact title already exists for this user/event
+      // Dedup: if a notification already exists for this user/event/type with the SAME title, skip.
+      // Also skip if one exists for this event at ANY checkpoint that is still valid
+      // (prevents re-creating when title format changes but same checkpoint was already sent)
       const exists = await Notification.findOne({ userId, eventId: event._id, type: 'deadline', title });
       if (exists) continue;
+
+      // Also check: if daysLeft is 7, skip if we already have an "in 7 days" notif
+      // If daysLeft is 3 or 2, skip if we already have "in 3 days" (same 3d checkpoint window)
+      const windowTitle = daysLeft <= 3 && daysLeft >= 2
+        ? `${event.title} in 3 days`
+        : daysLeft <= 7 && daysLeft >= 4
+        ? `${event.title} in 7 days`
+        : title; // for 0 or 1, exact match is fine
+      const windowExists = windowTitle !== title
+        ? await Notification.findOne({ userId, eventId: event._id, type: 'deadline', title: windowTitle })
+        : null;
+      if (windowExists) continue;
 
       await Notification.create({
         userId,
