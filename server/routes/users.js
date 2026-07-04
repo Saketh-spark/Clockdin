@@ -70,9 +70,18 @@ router.post('/login', async (req, res) => {
 });
 
 // Get current user — lean() for fastest possible read
+// Also triggers a background reminder-recovery sweep so Render sleep gaps don't cause missed reminders
 router.get('/me', auth, async (req, res) => {
   const user = await User.findById(req.user.id).select('-password').lean();
   res.json(user);
+
+  // Background: process any overdue reminders (survives Render free-tier sleep)
+  setImmediate(async () => {
+    try {
+      const { checkDueReminders } = require('../utils/scheduler');
+      await checkDueReminders();
+    } catch (_) {}
+  });
 });
 
 // Bookmarks: add/remove
